@@ -48,7 +48,7 @@ export default function Home() {
   
   // Form states
   const [newIngredient, setNewIngredient] = useState({ name: '', category: '' });
-  const [newMeal, setNewMeal] = useState({ name: '', type: 'breakfast' as const, ingredients: [] as string[] });
+  const [newMeal, setNewMeal] = useState<{ name: string; type: 'breakfast' | 'lunch' | 'dinner'; ingredients: string[] }>({ name: '', type: 'breakfast', ingredients: [] });
 
   // Generate calendar for current week
   const generateWeekCalendar = () => {
@@ -75,7 +75,7 @@ export default function Home() {
     if (calendar.length === 0) {
       generateWeekCalendar();
     }
-  }, []);
+  }, [calendar.length]);
 
   const addIngredient = () => {
     if (newIngredient.name && newIngredient.category) {
@@ -115,20 +115,20 @@ export default function Home() {
     setMeals(meals.filter(meal => meal.id !== id));
   };
 
-  const toggleMealIngredient = (mealId: string, ingredientId: string) => {
-    setMeals(meals.map(meal => {
-      if (meal.id === mealId) {
-        const hasIngredient = meal.ingredients.includes(ingredientId);
-        return {
-          ...meal,
-          ingredients: hasIngredient 
-            ? meal.ingredients.filter(id => id !== ingredientId)
-            : [...meal.ingredients, ingredientId]
-        };
-      }
-      return meal;
-    }));
-  };
+  // const toggleMealIngredient = (mealId: string, ingredientId: string) => {
+  //   setMeals(meals.map(meal => {
+  //     if (meal.id === mealId) {
+  //       const hasIngredient = meal.ingredients.includes(ingredientId);
+  //       return {
+  //         ...meal,
+  //         ingredients: hasIngredient 
+  //           ? meal.ingredients.filter(id => id !== ingredientId)
+  //           : [...meal.ingredients, ingredientId]
+  //       };
+  //     }
+  //     return meal;
+  //   }));
+  // };
 
   const assignMealToCalendar = (date: string, mealType: 'breakfast' | 'lunch' | 'dinner', mealId: string) => {
     setCalendar(calendar.map(day => {
@@ -143,9 +143,9 @@ export default function Home() {
     return ingredients.find(ing => ing.id === id)?.name || 'Unknown';
   };
 
-  const getMealName = (id: string) => {
-    return meals.find(meal => meal.id === id)?.name || 'Unknown';
-  };
+  // const getMealName = (id: string) => {
+  //   return meals.find(meal => meal.id === id)?.name || 'Unknown';
+  // };
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 dark:from-gray-900 dark:to-gray-800">
@@ -365,7 +365,10 @@ export default function Home() {
                   />
                   <select
                     value={newMeal.type}
-                    onChange={(e) => setNewMeal({ ...newMeal, type: e.target.value as 'breakfast' | 'lunch' | 'dinner' })}
+                    onChange={(e) => {
+                      const value = e.target.value as 'breakfast' | 'lunch' | 'dinner';
+                      setNewMeal({ ...newMeal, type: value });
+                    }}
                     className="px-3 sm:px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-gray-800 dark:text-white text-sm sm:text-base"
                   >
                     <option value="breakfast">Breakfast</option>
@@ -499,7 +502,7 @@ export default function Home() {
             
             {/* Mobile Calendar - Vertical Stack */}
             <div className="block sm:hidden space-y-4">
-              {calendar.map((day, index) => {
+              {calendar.map((day) => {
                 const date = new Date(day.date);
                 const dayName = date.toLocaleDateString('en-US', { weekday: 'long' });
                 const dayNumber = date.getDate();
@@ -575,7 +578,7 @@ export default function Home() {
 
             {/* Desktop Calendar - Grid Layout */}
             <div className="hidden sm:grid grid-cols-7 gap-4">
-              {calendar.map((day, index) => {
+              {calendar.map((day) => {
                 const date = new Date(day.date);
                 const dayName = date.toLocaleDateString('en-US', { weekday: 'short' });
                 const dayNumber = date.getDate();
