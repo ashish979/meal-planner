@@ -1,118 +1,132 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { ingredientService, mealService, calendarService } from '@/lib/database';
+import type { Ingredient, Meal, CalendarDay } from '@/lib/supabase';
 
-type Ingredient = {
-  id: string;
-  name: string;
-  category: string;
-};
+// Force dynamic rendering
+export const dynamic = 'force-dynamic';
 
-type Meal = {
-  id: string;
-  name: string;
-  type: 'breakfast' | 'lunch' | 'dinner';
-  ingredients: string[];
-};
-
-type CalendarDay = {
-  date: string;
-  breakfast?: string;
-  lunch?: string;
-  dinner?: string;
-};
 
 export default function Home() {
   const [activeSection, setActiveSection] = useState<'ingredients' | 'meals' | 'calendar'>('ingredients');
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   
-  // Ingredients state
-  const [ingredients, setIngredients] = useState<Ingredient[]>([
-    { id: '1', name: 'Eggs', category: 'Protein' },
-    { id: '2', name: 'Bread', category: 'Carbs' },
-    { id: '3', name: 'Milk', category: 'Dairy' },
-    { id: '4', name: 'Chicken', category: 'Protein' },
-    { id: '5', name: 'Rice', category: 'Carbs' },
-    { id: '6', name: 'Vegetables', category: 'Vegetables' },
-  ]);
-  
-  // Meals state
-  const [meals, setMeals] = useState<Meal[]>([
-    { id: '1', name: 'Scrambled Eggs', type: 'breakfast', ingredients: ['1', '3'] },
-    { id: '2', name: 'Chicken Rice Bowl', type: 'lunch', ingredients: ['4', '5', '6'] },
-    { id: '3', name: 'Grilled Chicken', type: 'dinner', ingredients: ['4', '6'] },
-  ]);
-  
-  // Calendar state
+  // State
+  const [ingredients, setIngredients] = useState<Ingredient[]>([]);
+  const [meals, setMeals] = useState<Meal[]>([]);
   const [calendar, setCalendar] = useState<CalendarDay[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   
   // Form states
   const [newIngredient, setNewIngredient] = useState({ name: '', category: '' });
   const [newMeal, setNewMeal] = useState<{ name: string; type: 'breakfast' | 'lunch' | 'dinner'; ingredients: string[] }>({ name: '', type: 'breakfast', ingredients: [] });
 
-  // Generate calendar for current week
-  const generateWeekCalendar = () => {
-    const today = new Date();
-    const startOfWeek = new Date(today);
-    startOfWeek.setDate(today.getDate() - today.getDay());
-    
-    const week = [];
-    for (let i = 0; i < 7; i++) {
-      const date = new Date(startOfWeek);
-      date.setDate(startOfWeek.getDate() + i);
-      week.push({
-        date: date.toISOString().split('T')[0],
-        breakfast: undefined,
-        lunch: undefined,
-        dinner: undefined,
+  // Load data from Supabase
+  const loadData = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+
+      // Load ingredients
+      const ingredientsData = await ingredientService.getAll();
+      setIngredients(ingredientsData);
+
+      // Load meals
+      const mealsData = await mealService.getAll();
+      setMeals(mealsData);
+
+      // Generate current week dates
+      const today = new Date();
+      const startOfWeek = new Date(today);
+      startOfWeek.setDate(today.getDate() - today.getDay());
+      
+      const weekDates = [];
+      for (let i = 0; i < 7; i++) {
+        const date = new Date(startOfWeek);
+        date.setDate(startOfWeek.getDate() + i);
+        weekDates.push(date.toISOString().split('T')[0]);
+      }
+
+      // Load calendar data for the week
+      const startDate = weekDates[0];
+      const endDate = weekDates[6];
+      const calendarData = await calendarService.getWeek(startDate, endDate);
+
+      // Merge with week dates to ensure all days are present
+      const weekCalendar = weekDates.map(date => {
+        const existingDay = calendarData.find(day => day.date === date);
+        return existingDay || {
+          id: '',
+          date,
+          breakfast: undefined,
+          lunch: undefined,
+          dinner: undefined,
+          created_at: '',
+          updated_at: ''
+        };
       });
+
+      setCalendar(weekCalendar);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load data');
+      console.error('Error loading data:', err);
+    } finally {
+      setLoading(false);
     }
-    setCalendar(week);
   };
 
-  // Initialize calendar on component mount
+  // Initialize data on component mount
   useEffect(() => {
-    if (calendar.length === 0) {
-      generateWeekCalendar();
-    }
-  }, [calendar.length]);
+    loadData();
+  }, []);
 
-  const addIngredient = () => {
+  const addIngredient = async () => {
     if (newIngredient.name && newIngredient.category) {
-      const ingredient: Ingredient = {
-        id: Date.now().toString(),
-        name: newIngredient.name,
-        category: newIngredient.category,
-      };
-      setIngredients([...ingredients, ingredient]);
-      setNewIngredient({ name: '', category: '' });
+      try {
+        const ingredient = await ingredientService.create(newIngredient.name, newIngredient.category);
+        setIngredients([...ingredients, ingredient]);
+        setNewIngredient({ name: '', category: '' });
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Failed to add ingredient');
+      }
     }
   };
 
-  const deleteIngredient = (id: string) => {
-    setIngredients(ingredients.filter(ing => ing.id !== id));
-    // Also remove from meals
-    setMeals(meals.map(meal => ({
-      ...meal,
-      ingredients: meal.ingredients.filter(ingId => ingId !== id)
-    })));
+  const deleteIngredient = async (id: string) => {
+    try {
+      await ingredientService.delete(id);
+      setIngredients(ingredients.filter(ing => ing.id !== id));
+      // Also remove from meals
+      setMeals(meals.map(meal => ({
+        ...meal,
+        ingredients: meal.ingredients.filter(ingId => ingId !== id)
+      })));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to delete ingredient');
+    }
   };
 
-  const addMeal = () => {
+  const addMeal = async () => {
     if (newMeal.name) {
-      const meal: Meal = {
-        id: Date.now().toString(),
-        name: newMeal.name,
-        type: newMeal.type,
-        ingredients: newMeal.ingredients,
-      };
-      setMeals([...meals, meal]);
-      setNewMeal({ name: '', type: 'breakfast', ingredients: [] });
+      try {
+        const meal = await mealService.create(newMeal.name, newMeal.type, newMeal.ingredients);
+        setMeals([...meals, meal]);
+        setNewMeal({ name: '', type: 'breakfast', ingredients: [] });
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Failed to add meal');
+      }
     }
   };
 
-  const deleteMeal = (id: string) => {
-    setMeals(meals.filter(meal => meal.id !== id));
+  const deleteMeal = async (id: string) => {
+    try {
+      await mealService.delete(id);
+      setMeals(meals.filter(meal => meal.id !== id));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to delete meal');
+    }
   };
 
   // const toggleMealIngredient = (mealId: string, ingredientId: string) => {
@@ -130,13 +144,18 @@ export default function Home() {
   //   }));
   // };
 
-  const assignMealToCalendar = (date: string, mealType: 'breakfast' | 'lunch' | 'dinner', mealId: string) => {
-    setCalendar(calendar.map(day => {
-      if (day.date === date) {
-        return { ...day, [mealType]: mealId };
-      }
-      return day;
-    }));
+  const assignMealToCalendar = async (date: string, mealType: 'breakfast' | 'lunch' | 'dinner', mealId: string) => {
+    try {
+      await calendarService.updateMeal(date, mealType, mealId);
+      setCalendar(calendar.map(day => {
+        if (day.date === date) {
+          return { ...day, [mealType]: mealId };
+        }
+        return day;
+      }));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to assign meal to calendar');
+    }
   };
 
   const getIngredientName = (id: string) => {
@@ -263,7 +282,33 @@ export default function Home() {
 
       {/* Main Content */}
       <main className="container mx-auto px-4 sm:px-6 py-4 sm:py-8">
-        {/* Ingredients Section */}
+        {/* Error Message */}
+        {error && (
+          <div className="mb-6 p-4 bg-red-100 dark:bg-red-900/30 border border-red-300 dark:border-red-700 rounded-lg">
+            <div className="flex items-center justify-between">
+              <p className="text-red-800 dark:text-red-300">{error}</p>
+              <button
+                onClick={() => setError(null)}
+                className="text-red-600 dark:text-red-400 hover:text-red-800 dark:hover:text-red-200"
+              >
+                ✕
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Loading State */}
+        {loading && (
+          <div className="flex items-center justify-center py-12">
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+            <span className="ml-3 text-gray-600 dark:text-gray-300">Loading...</span>
+          </div>
+        )}
+
+        {/* Content */}
+        {!loading && (
+          <>
+            {/* Ingredients Section */}
         {activeSection === 'ingredients' && (
           <div className="bg-white dark:bg-gray-800 rounded-xl shadow-lg p-4 sm:p-6">
             <h2 className="text-xl sm:text-2xl font-bold text-gray-900 dark:text-white mb-4 sm:mb-6">Kitchen Ingredients</h2>
@@ -651,6 +696,8 @@ export default function Home() {
               })}
             </div>
           </div>
+        )}
+          </>
         )}
       </main>
     </div>
