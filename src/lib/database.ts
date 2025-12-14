@@ -89,11 +89,11 @@ export const mealService = {
   },
 
   // Add new meal
-  async create(name: string, type: 'breakfast' | 'lunch' | 'dinner', ingredients: string[]): Promise<Meal> {
+  async create(name: string, type: 'breakfast' | 'lunch' | 'dinner', ingredients: string[], isVeg: boolean = true, image?: string): Promise<Meal> {
     isSupabaseConfigured()
     const { data, error } = await supabase!
       .from('meals')
-      .insert([{ name, type, ingredients }])
+      .insert([{ name, type, ingredients, is_veg: isVeg, image }])
       .select()
       .single()
     

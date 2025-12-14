@@ -1,62 +1,45 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import { ingredientService, mealService, calendarService } from '@/lib/database';
-import type { Ingredient, Meal, CalendarDay } from '@/lib/supabase';
+import { useState, useEffect, useCallback } from 'react';
+import { useRouter } from 'next/navigation';
+import Link from 'next/link';
+import { mealService, calendarService } from '@/lib/database';
+import type { Meal, CalendarDay } from '@/lib/supabase';
 
-// Force dynamic rendering
 export const dynamic = 'force-dynamic';
 
+type ViewMode = 'day' | 'week' | 'month';
 
 export default function Home() {
-  const [activeSection, setActiveSection] = useState<'ingredients' | 'meals' | 'calendar'>('ingredients');
-  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-  
-  // State
-  const [ingredients, setIngredients] = useState<Ingredient[]>([]);
+  const router = useRouter();
+  const [viewMode, setViewMode] = useState<ViewMode>('week');
+  const [currentDate, setCurrentDate] = useState(new Date());
   const [meals, setMeals] = useState<Meal[]>([]);
   const [calendar, setCalendar] = useState<CalendarDay[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  
-  // Form states
-  const [newIngredient, setNewIngredient] = useState({ name: '', category: '' });
-  const [newMeal, setNewMeal] = useState<{ name: string; type: 'breakfast' | 'lunch' | 'dinner'; ingredients: string[] }>({ name: '', type: 'breakfast', ingredients: [] });
 
   // Load data from Supabase
-  const loadData = async () => {
+  const loadData = useCallback(async () => {
     try {
       setLoading(true);
       setError(null);
-
-      // Load ingredients
-      const ingredientsData = await ingredientService.getAll();
-      setIngredients(ingredientsData);
 
       // Load meals
       const mealsData = await mealService.getAll();
       setMeals(mealsData);
 
-      // Generate current week dates
-      const today = new Date();
-      const startOfWeek = new Date(today);
-      startOfWeek.setDate(today.getDate() - today.getDay());
-      
-      const weekDates = [];
-      for (let i = 0; i < 7; i++) {
-        const date = new Date(startOfWeek);
-        date.setDate(startOfWeek.getDate() + i);
-        weekDates.push(date.toISOString().split('T')[0]);
-      }
-
-      // Load calendar data for the week
-      const startDate = weekDates[0];
-      const endDate = weekDates[6];
+      // Load calendar based on view mode
+      const startDate = getStartDate();
+      const endDate = getEndDate();
       const calendarData = await calendarService.getWeek(startDate, endDate);
-
-      // Merge with week dates to ensure all days are present
-      const weekCalendar = weekDates.map(date => {
-        const existingDay = calendarData.find(day => day.date === date);
+      
+      // Generate all dates in range
+      const allDates = getAllDatesInRange(startDate, endDate);
+      const calendarMap = new Map(calendarData.map(day => [day.date, day]));
+      
+      const fullCalendar = allDates.map(date => {
+        const existingDay = calendarMap.get(date);
         return existingDay || {
           id: '',
           date,
@@ -67,639 +50,507 @@ export default function Home() {
           updated_at: ''
         };
       });
-
-      setCalendar(weekCalendar);
+      
+      setCalendar(fullCalendar);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load data');
       console.error('Error loading data:', err);
     } finally {
       setLoading(false);
     }
+  }, [currentDate, viewMode]);
+
+  const getStartDate = (): string => {
+    const date = new Date(currentDate);
+    if (viewMode === 'day') {
+      return date.toISOString().split('T')[0];
+    } else if (viewMode === 'week') {
+      date.setDate(date.getDate() - date.getDay());
+      return date.toISOString().split('T')[0];
+    } else {
+      // Month view - first day of month
+      date.setDate(1);
+      return date.toISOString().split('T')[0];
+    }
   };
 
-  // Initialize data on component mount
+  const getEndDate = (): string => {
+    const date = new Date(currentDate);
+    if (viewMode === 'day') {
+      return date.toISOString().split('T')[0];
+    } else if (viewMode === 'week') {
+      date.setDate(date.getDate() - date.getDay() + 6);
+      return date.toISOString().split('T')[0];
+    } else {
+      // Month view - last day of month
+      date.setMonth(date.getMonth() + 1);
+      date.setDate(0);
+      return date.toISOString().split('T')[0];
+    }
+  };
+
+  const getAllDatesInRange = (start: string, end: string): string[] => {
+    const dates: string[] = [];
+    const startDate = new Date(start);
+    const endDate = new Date(end);
+    
+    for (let d = new Date(startDate); d <= endDate; d.setDate(d.getDate() + 1)) {
+      dates.push(d.toISOString().split('T')[0]);
+    }
+    
+    return dates;
+  };
+
   useEffect(() => {
     loadData();
-  }, []);
+  }, [currentDate, viewMode, loadData]);
 
-  const addIngredient = async () => {
-    if (newIngredient.name && newIngredient.category) {
-      try {
-        const ingredient = await ingredientService.create(newIngredient.name, newIngredient.category);
-        setIngredients([...ingredients, ingredient]);
-        setNewIngredient({ name: '', category: '' });
-      } catch (err) {
-        setError(err instanceof Error ? err.message : 'Failed to add ingredient');
-      }
+  const handleMealClick = (mealId: string | undefined) => {
+    if (mealId) {
+      router.push(`/meals/${mealId}`);
     }
   };
 
-  const deleteIngredient = async (id: string) => {
+  const handleAddMeal = async (date: string, mealType: 'breakfast' | 'lunch' | 'dinner') => {
+    router.push(`/meals?date=${date}&type=${mealType}`);
+  };
+
+  const handleRemoveMeal = async (date: string, mealType: 'breakfast' | 'lunch' | 'dinner') => {
     try {
-      await ingredientService.delete(id);
-      setIngredients(ingredients.filter(ing => ing.id !== id));
-      // Also remove from meals
-      setMeals(meals.map(meal => ({
-        ...meal,
-        ingredients: meal.ingredients.filter(ingId => ingId !== id)
-      })));
+      await calendarService.updateMeal(date, mealType, null);
+      await loadData();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to delete ingredient');
+      setError(err instanceof Error ? err.message : 'Failed to remove meal');
     }
   };
 
-  const addMeal = async () => {
-    if (newMeal.name) {
-      try {
-        const meal = await mealService.create(newMeal.name, newMeal.type, newMeal.ingredients);
-        setMeals([...meals, meal]);
-        setNewMeal({ name: '', type: 'breakfast', ingredients: [] });
-      } catch (err) {
-        setError(err instanceof Error ? err.message : 'Failed to add meal');
-      }
-    }
-  };
-
-  const deleteMeal = async (id: string) => {
+  const handleAutoSuggest = async () => {
+    // Simple auto-suggest: randomly assign available meals to empty slots
     try {
-      await mealService.delete(id);
-      setMeals(meals.filter(meal => meal.id !== id));
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to delete meal');
-    }
-  };
+      const breakfastMeals = meals.filter(m => m.type === 'breakfast');
+      const lunchMeals = meals.filter(m => m.type === 'lunch');
+      const dinnerMeals = meals.filter(m => m.type === 'dinner');
 
-  // const toggleMealIngredient = (mealId: string, ingredientId: string) => {
-  //   setMeals(meals.map(meal => {
-  //     if (meal.id === mealId) {
-  //       const hasIngredient = meal.ingredients.includes(ingredientId);
-  //       return {
-  //         ...meal,
-  //         ingredients: hasIngredient 
-  //           ? meal.ingredients.filter(id => id !== ingredientId)
-  //           : [...meal.ingredients, ingredientId]
-  //       };
-  //     }
-  //     return meal;
-  //   }));
-  // };
-
-  const assignMealToCalendar = async (date: string, mealType: 'breakfast' | 'lunch' | 'dinner', mealId: string) => {
-    try {
-      await calendarService.updateMeal(date, mealType, mealId);
-      setCalendar(calendar.map(day => {
-        if (day.date === date) {
-          return { ...day, [mealType]: mealId };
+      for (const day of calendar) {
+        if (!day.breakfast && breakfastMeals.length > 0) {
+          const randomMeal = breakfastMeals[Math.floor(Math.random() * breakfastMeals.length)];
+          await calendarService.updateMeal(day.date, 'breakfast', randomMeal.id);
         }
-        return day;
-      }));
+        if (!day.lunch && lunchMeals.length > 0) {
+          const randomMeal = lunchMeals[Math.floor(Math.random() * lunchMeals.length)];
+          await calendarService.updateMeal(day.date, 'lunch', randomMeal.id);
+        }
+        if (!day.dinner && dinnerMeals.length > 0) {
+          const randomMeal = dinnerMeals[Math.floor(Math.random() * dinnerMeals.length)];
+          await calendarService.updateMeal(day.date, 'dinner', randomMeal.id);
+        }
+      }
+      
+      await loadData();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to assign meal to calendar');
+      setError(err instanceof Error ? err.message : 'Failed to auto-suggest meals');
     }
   };
 
-  const getIngredientName = (id: string) => {
-    return ingredients.find(ing => ing.id === id)?.name || 'Unknown';
+  const navigateDate = (direction: 'prev' | 'next') => {
+    const newDate = new Date(currentDate);
+    if (viewMode === 'day') {
+      newDate.setDate(newDate.getDate() + (direction === 'next' ? 1 : -1));
+    } else if (viewMode === 'week') {
+      newDate.setDate(newDate.getDate() + (direction === 'next' ? 7 : -7));
+    } else {
+      newDate.setMonth(newDate.getMonth() + (direction === 'next' ? 1 : -1));
+    }
+    setCurrentDate(newDate);
   };
 
-  // const getMealName = (id: string) => {
-  //   return meals.find(meal => meal.id === id)?.name || 'Unknown';
-  // };
+  const goToToday = () => {
+    setCurrentDate(new Date());
+  };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 dark:from-gray-900 dark:to-gray-800">
+    <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
       {/* Header */}
-      <header className="bg-white dark:bg-gray-800 shadow-sm">
+      <header className="bg-white dark:bg-gray-800 shadow-sm border-b border-gray-200 dark:border-gray-700">
         <div className="container mx-auto px-4 sm:px-6 py-4">
-          <nav className="flex items-center justify-between">
-            {/* Logo */}
-            <div className="flex items-center space-x-2 sm:space-x-3">
-              <div className="w-8 h-8 sm:w-10 sm:h-10 bg-gradient-to-r from-blue-600 to-indigo-600 rounded-lg flex items-center justify-center">
-                <svg className="w-4 h-4 sm:w-6 sm:h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v10a2 2 0 002 2h8a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" />
-                </svg>
-              </div>
-              <span className="text-lg sm:text-2xl font-bold text-gray-800 dark:text-white">Meal Planner</span>
-            </div>
-            
-            {/* Mobile Menu Button */}
-            <button
-              onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-              className="md:hidden p-2 rounded-lg text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700"
-            >
-              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                {mobileMenuOpen ? (
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                ) : (
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
-                )}
-              </svg>
-            </button>
-            
-            {/* Desktop Navigation */}
-            <div className="hidden md:flex items-center space-x-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center space-x-4">
+              <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Meal Planner</h1>
               <button
-                onClick={() => setActiveSection('ingredients')}
-                className={`px-4 py-2 rounded-lg transition-colors ${
-                  activeSection === 'ingredients'
-                    ? 'bg-blue-600 text-white'
-                    : 'text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700'
-                }`}
+                onClick={goToToday}
+                className="px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
               >
-                Ingredients
-              </button>
-              <button
-                onClick={() => setActiveSection('meals')}
-                className={`px-4 py-2 rounded-lg transition-colors ${
-                  activeSection === 'meals'
-                    ? 'bg-blue-600 text-white'
-                    : 'text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700'
-                }`}
-              >
-                Meals
-              </button>
-              <button
-                onClick={() => setActiveSection('calendar')}
-                className={`px-4 py-2 rounded-lg transition-colors ${
-                  activeSection === 'calendar'
-                    ? 'bg-blue-600 text-white'
-                    : 'text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700'
-                }`}
-              >
-                Calendar
+                Today
               </button>
             </div>
-          </nav>
-          
-          {/* Mobile Navigation Menu */}
-          {mobileMenuOpen && (
-            <div className="md:hidden mt-4 pb-4 border-t border-gray-200 dark:border-gray-600">
-              <div className="flex flex-col space-y-2 pt-4">
-                <button
-                  onClick={() => {
-                    setActiveSection('ingredients');
-                    setMobileMenuOpen(false);
-                  }}
-                  className={`px-4 py-2 rounded-lg transition-colors text-left ${
-                    activeSection === 'ingredients'
-                      ? 'bg-blue-600 text-white'
-                      : 'text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700'
-                  }`}
-                >
-                  Ingredients
-                </button>
-                <button
-                  onClick={() => {
-                    setActiveSection('meals');
-                    setMobileMenuOpen(false);
-                  }}
-                  className={`px-4 py-2 rounded-lg transition-colors text-left ${
-                    activeSection === 'meals'
-                      ? 'bg-blue-600 text-white'
-                      : 'text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700'
-                  }`}
-                >
-                  Meals
-                </button>
-                <button
-                  onClick={() => {
-                    setActiveSection('calendar');
-                    setMobileMenuOpen(false);
-                  }}
-                  className={`px-4 py-2 rounded-lg transition-colors text-left ${
-                    activeSection === 'calendar'
-                      ? 'bg-blue-600 text-white'
-                      : 'text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700'
-                  }`}
-                >
-                  Calendar
-                </button>
-              </div>
+            <div className="flex items-center space-x-4">
+              <button
+                onClick={handleAutoSuggest}
+                className="px-4 py-2 text-sm bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
+              >
+                Auto Suggest Week
+              </button>
+              <Link
+                href="/meals"
+                className="px-4 py-2 text-sm bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors"
+              >
+                Manage Meals
+              </Link>
             </div>
-          )}
+          </div>
         </div>
       </header>
 
-      {/* Main Content */}
-      <main className="container mx-auto px-4 sm:px-6 py-4 sm:py-8">
-        {/* Error Message */}
-        {error && (
-          <div className="mb-6 p-4 bg-red-100 dark:bg-red-900/30 border border-red-300 dark:border-red-700 rounded-lg">
-            <div className="flex items-center justify-between">
-              <p className="text-red-800 dark:text-red-300">{error}</p>
+      {/* Calendar Controls */}
+      <div className="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700">
+        <div className="container mx-auto px-4 sm:px-6 py-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center space-x-4">
               <button
-                onClick={() => setError(null)}
-                className="text-red-600 dark:text-red-400 hover:text-red-800 dark:hover:text-red-200"
+                onClick={() => navigateDate('prev')}
+                className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
               >
-                ✕
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+                </svg>
+              </button>
+              <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
+                {currentDate.toLocaleDateString('en-US', { 
+                  month: 'long', 
+                  year: 'numeric',
+                  ...(viewMode === 'day' && { day: 'numeric' })
+                })}
+              </h2>
+              <button
+                onClick={() => navigateDate('next')}
+                className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
+              >
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                </svg>
               </button>
             </div>
+            <div className="flex items-center space-x-2 bg-gray-100 dark:bg-gray-700 rounded-lg p-1">
+              {(['day', 'week', 'month'] as ViewMode[]).map((mode) => (
+                <button
+                  key={mode}
+                  onClick={() => setViewMode(mode)}
+                  className={`px-4 py-2 text-sm font-medium rounded-md transition-colors capitalize ${
+                    viewMode === mode
+                      ? 'bg-white dark:bg-gray-600 text-gray-900 dark:text-white shadow-sm'
+                      : 'text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white'
+                  }`}
+                >
+                  {mode}
+                </button>
+              ))}
+            </div>
           </div>
-        )}
+        </div>
+      </div>
 
-        {/* Loading State */}
-        {loading && (
+      {/* Error Message */}
+      {error && (
+        <div className="container mx-auto px-4 sm:px-6 py-4">
+          <div className="p-4 bg-red-100 dark:bg-red-900/30 border border-red-300 dark:border-red-700 rounded-lg">
+            <p className="text-red-800 dark:text-red-300">{error}</p>
+          </div>
+        </div>
+      )}
+
+      {/* Calendar View */}
+      <main className="container mx-auto px-4 sm:px-6 py-6">
+        {loading ? (
           <div className="flex items-center justify-center py-12">
             <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
             <span className="ml-3 text-gray-600 dark:text-gray-300">Loading...</span>
           </div>
-        )}
-
-        {/* Content */}
-        {!loading && (
-          <>
-            {/* Ingredients Section */}
-        {activeSection === 'ingredients' && (
-          <div className="bg-white dark:bg-gray-800 rounded-xl shadow-lg p-4 sm:p-6">
-            <h2 className="text-xl sm:text-2xl font-bold text-gray-900 dark:text-white mb-4 sm:mb-6">Kitchen Ingredients</h2>
-            
-            {/* Add Ingredient Form */}
-            <div className="mb-4 sm:mb-6 p-3 sm:p-4 bg-gray-50 dark:bg-gray-700 rounded-lg">
-              <h3 className="text-base sm:text-lg font-semibold text-gray-900 dark:text-white mb-3 sm:mb-4">Add New Ingredient</h3>
-              <div className="flex flex-col sm:flex-row gap-3 sm:gap-4">
-                <input
-                  type="text"
-                  placeholder="Ingredient name"
-                  value={newIngredient.name}
-                  onChange={(e) => setNewIngredient({ ...newIngredient, name: e.target.value })}
-                  className="flex-1 px-3 sm:px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-gray-800 dark:text-white text-sm sm:text-base"
-                />
-                <input
-                  type="text"
-                  placeholder="Category (e.g., Protein, Carbs)"
-                  value={newIngredient.category}
-                  onChange={(e) => setNewIngredient({ ...newIngredient, category: e.target.value })}
-                  className="flex-1 px-3 sm:px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-gray-800 dark:text-white text-sm sm:text-base"
-                />
-                <button
-                  onClick={addIngredient}
-                  className="px-4 sm:px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm sm:text-base font-medium"
-                >
-                  Add
-                </button>
-              </div>
-            </div>
-
-            {/* Ingredients Table - Mobile Card View */}
-            <div className="block sm:hidden space-y-3">
-              {ingredients.map((ingredient) => (
-                <div key={ingredient.id} className="bg-gray-50 dark:bg-gray-700 rounded-lg p-4 border border-gray-200 dark:border-gray-600">
-                  <div className="flex justify-between items-start">
-                    <div className="flex-1">
-                      <h3 className="font-semibold text-gray-900 dark:text-white text-base">{ingredient.name}</h3>
-                      <p className="text-sm text-gray-600 dark:text-gray-300 mt-1">{ingredient.category}</p>
-                    </div>
-                    <button
-                      onClick={() => deleteIngredient(ingredient.id)}
-                      className="text-red-600 hover:text-red-800 transition-colors text-sm font-medium ml-3"
-                    >
-                      Delete
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
-
-            {/* Ingredients Table - Desktop View */}
-            <div className="hidden sm:block overflow-x-auto">
-              <table className="w-full">
-                <thead>
-                  <tr className="border-b border-gray-200 dark:border-gray-600">
-                    <th className="text-left py-3 px-4 font-semibold text-gray-900 dark:text-white">Name</th>
-                    <th className="text-left py-3 px-4 font-semibold text-gray-900 dark:text-white">Category</th>
-                    <th className="text-left py-3 px-4 font-semibold text-gray-900 dark:text-white">Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {ingredients.map((ingredient) => (
-                    <tr key={ingredient.id} className="border-b border-gray-100 dark:border-gray-700">
-                      <td className="py-3 px-4 text-gray-900 dark:text-white">{ingredient.name}</td>
-                      <td className="py-3 px-4 text-gray-600 dark:text-gray-300">{ingredient.category}</td>
-                      <td className="py-3 px-4">
-                        <button
-                          onClick={() => deleteIngredient(ingredient.id)}
-                          className="text-red-600 hover:text-red-800 transition-colors"
-                        >
-                          Delete
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+        ) : (
+          <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg overflow-hidden">
+            {viewMode === 'day' && (
+              <DayView
+                date={currentDate}
+                calendar={calendar}
+                meals={meals}
+                onMealClick={handleMealClick}
+                onAddMeal={handleAddMeal}
+                onRemoveMeal={handleRemoveMeal}
+              />
+            )}
+            {viewMode === 'week' && (
+              <WeekView
+                calendar={calendar}
+                meals={meals}
+                onMealClick={handleMealClick}
+                onAddMeal={handleAddMeal}
+                onRemoveMeal={handleRemoveMeal}
+              />
+            )}
+            {viewMode === 'month' && (
+              <MonthView
+                calendar={calendar}
+                meals={meals}
+                currentDate={currentDate}
+                onMealClick={handleMealClick}
+                onAddMeal={handleAddMeal}
+              />
+            )}
           </div>
         )}
+      </main>
+    </div>
+  );
+}
 
-        {/* Meals Section */}
-        {activeSection === 'meals' && (
-          <div className="bg-white dark:bg-gray-800 rounded-xl shadow-lg p-4 sm:p-6">
-            <h2 className="text-xl sm:text-2xl font-bold text-gray-900 dark:text-white mb-4 sm:mb-6">Meal Options</h2>
-            
-            {/* Add Meal Form */}
-            <div className="mb-4 sm:mb-6 p-3 sm:p-4 bg-gray-50 dark:bg-gray-700 rounded-lg">
-              <h3 className="text-base sm:text-lg font-semibold text-gray-900 dark:text-white mb-3 sm:mb-4">Add New Meal</h3>
-              <div className="space-y-3 sm:space-y-4">
-                <div className="flex flex-col sm:flex-row gap-3 sm:gap-4">
-                  <input
-                    type="text"
-                    placeholder="Meal name"
-                    value={newMeal.name}
-                    onChange={(e) => setNewMeal({ ...newMeal, name: e.target.value })}
-                    className="flex-1 px-3 sm:px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-gray-800 dark:text-white text-sm sm:text-base"
-                  />
-                  <select
-                    value={newMeal.type}
-                    onChange={(e) => {
-                      const value = e.target.value as 'breakfast' | 'lunch' | 'dinner';
-                      setNewMeal({ ...newMeal, type: value });
-                    }}
-                    className="px-3 sm:px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-gray-800 dark:text-white text-sm sm:text-base"
-                  >
-                    <option value="breakfast">Breakfast</option>
-                    <option value="lunch">Lunch</option>
-                    <option value="dinner">Dinner</option>
-                  </select>
+// Day View Component
+function DayView({ 
+  date, 
+  calendar, 
+  meals, 
+  onMealClick, 
+  onAddMeal, 
+  onRemoveMeal 
+}: {
+  date: Date;
+  calendar: CalendarDay[];
+  meals: Meal[];
+  onMealClick: (mealId: string | undefined) => void;
+  onAddMeal: (date: string, type: 'breakfast' | 'lunch' | 'dinner') => void;
+  onRemoveMeal: (date: string, type: 'breakfast' | 'lunch' | 'dinner') => void;
+}) {
+  const dateStr = date.toISOString().split('T')[0];
+  const day = calendar.find(d => d.date === dateStr);
+  
+  const mealTypes: Array<'breakfast' | 'lunch' | 'dinner'> = ['breakfast', 'lunch', 'dinner'];
+  const mealLabels = { breakfast: 'Breakfast', lunch: 'Lunch', dinner: 'Dinner' };
+
+  return (
+    <div className="p-6">
+      <h3 className="text-xl font-semibold text-gray-900 dark:text-white mb-6">
+        {date.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}
+      </h3>
+      <div className="space-y-4">
+        {mealTypes.map((type) => {
+          const mealId = day?.[type];
+          const meal = meals.find(m => m.id === mealId);
+          
+          return (
+            <div key={type} className="border border-gray-200 dark:border-gray-700 rounded-lg p-4">
+              <div className="flex items-center justify-between mb-2">
+                <h4 className="text-lg font-medium text-gray-900 dark:text-white">{mealLabels[type]}</h4>
+                {mealId ? (
                   <button
-                    onClick={addMeal}
-                    className="px-4 sm:px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm sm:text-base font-medium"
+                    onClick={() => onRemoveMeal(dateStr, type)}
+                    className="text-red-600 hover:text-red-800 text-sm"
+                  >
+                    Remove
+                  </button>
+                ) : (
+                  <button
+                    onClick={() => onAddMeal(dateStr, type)}
+                    className="text-blue-600 hover:text-blue-800 text-sm"
                   >
                     Add Meal
                   </button>
+                )}
+              </div>
+              {meal ? (
+                <div
+                  onClick={() => onMealClick(mealId)}
+                  className="cursor-pointer p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg hover:bg-blue-100 dark:hover:bg-blue-900/30 transition-colors"
+                >
+                  <p className="font-medium text-gray-900 dark:text-white">{meal.name}</p>
                 </div>
-                
-                {/* Ingredient Selection */}
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                    Select Ingredients:
-                  </label>
-                  <div className="flex flex-wrap gap-2">
-                    {ingredients.map((ingredient) => (
-                      <label key={ingredient.id} className="flex items-center space-x-2">
-                        <input
-                          type="checkbox"
-                          checked={newMeal.ingredients.includes(ingredient.id)}
-                          onChange={(e) => {
-                            if (e.target.checked) {
-                              setNewMeal({ ...newMeal, ingredients: [...newMeal.ingredients, ingredient.id] });
-                            } else {
-                              setNewMeal({ ...newMeal, ingredients: newMeal.ingredients.filter(id => id !== ingredient.id) });
-                            }
+              ) : (
+                <p className="text-gray-400 dark:text-gray-500 text-sm">No meal scheduled</p>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// Week View Component
+function WeekView({ 
+  calendar, 
+  meals, 
+  onMealClick, 
+  onAddMeal, 
+  onRemoveMeal 
+}: {
+  calendar: CalendarDay[];
+  meals: Meal[];
+  onMealClick: (mealId: string | undefined) => void;
+  onAddMeal: (date: string, type: 'breakfast' | 'lunch' | 'dinner') => void;
+  onRemoveMeal: (date: string, type: 'breakfast' | 'lunch' | 'dinner') => void;
+}) {
+  const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  const mealTypes: Array<'breakfast' | 'lunch' | 'dinner'> = ['breakfast', 'lunch', 'dinner'];
+  const mealColors = { breakfast: 'bg-yellow-100 dark:bg-yellow-900/30', lunch: 'bg-green-100 dark:bg-green-900/30', dinner: 'bg-blue-100 dark:bg-blue-900/30' };
+
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full">
+        <thead>
+          <tr>
+            <th className="p-4 text-left text-sm font-medium text-gray-500 dark:text-gray-400 border-b border-gray-200 dark:border-gray-700">Time</th>
+            {calendar.map((day) => {
+              const date = new Date(day.date);
+              return (
+                <th key={day.date} className="p-4 text-center text-sm font-medium text-gray-500 dark:text-gray-400 border-b border-gray-200 dark:border-gray-700 min-w-[120px]">
+                  <div>{days[date.getDay()]}</div>
+                  <div className="text-lg font-semibold text-gray-900 dark:text-white">{date.getDate()}</div>
+                </th>
+              );
+            })}
+          </tr>
+        </thead>
+        <tbody>
+          {mealTypes.map((type) => (
+            <tr key={type} className="border-b border-gray-200 dark:border-gray-700">
+              <td className="p-4 font-medium text-gray-900 dark:text-white capitalize">{type}</td>
+              {calendar.map((day) => {
+                const mealId = day[type];
+                const meal = meals.find(m => m.id === mealId);
+                return (
+                  <td key={`${day.date}-${type}`} className="p-2">
+                    {meal ? (
+                      <div
+                        onClick={() => onMealClick(mealId)}
+                        className={`cursor-pointer p-2 rounded-lg ${mealColors[type]} hover:opacity-80 transition-opacity`}
+                      >
+                        <p className="text-sm font-medium text-gray-900 dark:text-white truncate">{meal.name}</p>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onRemoveMeal(day.date, type);
                           }}
-                          className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                        />
-                        <span className="text-xs sm:text-sm text-gray-700 dark:text-gray-300">{ingredient.name}</span>
-                      </label>
-                    ))}
-                  </div>
+                          className="text-xs text-red-600 hover:text-red-800 mt-1"
+                        >
+                          Remove
+                        </button>
+                      </div>
+                    ) : (
+                      <button
+                        onClick={() => onAddMeal(day.date, type)}
+                        className="w-full p-2 text-sm text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-lg hover:border-gray-400 dark:hover:border-gray-500 transition-colors"
+                      >
+                        + Add
+                      </button>
+                    )}
+                  </td>
+                );
+              })}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+// Month View Component
+function MonthView({ 
+  calendar, 
+  meals, 
+  currentDate, 
+  onMealClick, 
+  onAddMeal
+}: {
+  calendar: CalendarDay[];
+  meals: Meal[];
+  currentDate: Date;
+  onMealClick: (mealId: string | undefined) => void;
+  onAddMeal: (date: string, type: 'breakfast' | 'lunch' | 'dinner') => void;
+}) {
+  const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  const firstDay = new Date(currentDate.getFullYear(), currentDate.getMonth(), 1);
+  const lastDay = new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 0);
+  const startDate = new Date(firstDay);
+  startDate.setDate(startDate.getDate() - startDate.getDay());
+  
+  const weeks: string[][] = [];
+  let currentWeek: string[] = [];
+  
+  for (let d = new Date(startDate); d <= lastDay || currentWeek.length > 0; d.setDate(d.getDate() + 1)) {
+    currentWeek.push(d.toISOString().split('T')[0]);
+    if (currentWeek.length === 7) {
+      weeks.push(currentWeek);
+      currentWeek = [];
+    }
+  }
+  if (currentWeek.length > 0) {
+    weeks.push(currentWeek);
+  }
+
+  return (
+    <div className="p-6">
+      <div className="grid grid-cols-7 gap-2 mb-4">
+        {days.map(day => (
+          <div key={day} className="p-2 text-center text-sm font-medium text-gray-500 dark:text-gray-400">
+            {day}
+          </div>
+        ))}
+      </div>
+      {weeks.map((week, weekIdx) => (
+        <div key={weekIdx} className="grid grid-cols-7 gap-2">
+          {week.map((dateStr) => {
+            const date = new Date(dateStr);
+            const day = calendar.find(d => d.date === dateStr);
+            const isCurrentMonth = date.getMonth() === currentDate.getMonth();
+            const isToday = dateStr === new Date().toISOString().split('T')[0];
+            
+            return (
+              <div
+                key={dateStr}
+                className={`min-h-[100px] p-2 border border-gray-200 dark:border-gray-700 rounded-lg ${
+                  !isCurrentMonth ? 'opacity-50' : ''
+                } ${isToday ? 'ring-2 ring-blue-500' : ''}`}
+              >
+                <div className={`text-sm font-medium mb-1 ${isToday ? 'text-blue-600 dark:text-blue-400' : 'text-gray-900 dark:text-white'}`}>
+                  {date.getDate()}
+                </div>
+                <div className="space-y-1">
+                  {day?.breakfast && (
+                    <div
+                      onClick={() => onMealClick(day.breakfast)}
+                      className="text-xs p-1 bg-yellow-100 dark:bg-yellow-900/30 rounded cursor-pointer hover:opacity-80 truncate"
+                    >
+                      {meals.find(m => m.id === day.breakfast)?.name || 'Breakfast'}
+                    </div>
+                  )}
+                  {day?.lunch && (
+                    <div
+                      onClick={() => onMealClick(day.lunch)}
+                      className="text-xs p-1 bg-green-100 dark:bg-green-900/30 rounded cursor-pointer hover:opacity-80 truncate"
+                    >
+                      {meals.find(m => m.id === day.lunch)?.name || 'Lunch'}
+                    </div>
+                  )}
+                  {day?.dinner && (
+                    <div
+                      onClick={() => onMealClick(day.dinner)}
+                      className="text-xs p-1 bg-blue-100 dark:bg-blue-900/30 rounded cursor-pointer hover:opacity-80 truncate"
+                    >
+                      {meals.find(m => m.id === day.dinner)?.name || 'Dinner'}
+                    </div>
+                  )}
+                  {(!day?.breakfast || !day?.lunch || !day?.dinner) && (
+                    <button
+                      onClick={() => onAddMeal(dateStr, 'breakfast')}
+                      className="text-xs text-gray-400 hover:text-gray-600"
+                    >
+                      + Add
+                    </button>
+                  )}
                 </div>
               </div>
-            </div>
-
-            {/* Meals Display */}
-            <div className="space-y-4 sm:space-y-6">
-              {['breakfast', 'lunch', 'dinner'].map((mealType) => (
-                <div key={mealType}>
-                  <h3 className="text-base sm:text-lg font-semibold text-gray-900 dark:text-white mb-3 capitalize">
-                    {mealType} Options
-                  </h3>
-                  
-                  {/* Mobile Card View */}
-                  <div className="block sm:hidden space-y-3">
-                    {meals
-                      .filter(meal => meal.type === mealType)
-                      .map((meal) => (
-                        <div key={meal.id} className="bg-gray-50 dark:bg-gray-700 rounded-lg p-4 border border-gray-200 dark:border-gray-600">
-                          <div className="flex justify-between items-start mb-3">
-                            <h4 className="font-semibold text-gray-900 dark:text-white text-base">{meal.name}</h4>
-                            <button
-                              onClick={() => deleteMeal(meal.id)}
-                              className="text-red-600 hover:text-red-800 transition-colors text-sm font-medium"
-                            >
-                              Delete
-                            </button>
-                          </div>
-                          <div className="flex flex-wrap gap-1">
-                            {meal.ingredients.map((ingredientId) => (
-                              <span
-                                key={ingredientId}
-                                className="px-2 py-1 bg-blue-100 dark:bg-blue-900/30 text-blue-800 dark:text-blue-300 text-xs rounded-full"
-                              >
-                                {getIngredientName(ingredientId)}
-                              </span>
-                            ))}
-                          </div>
-                        </div>
-                      ))}
-                  </div>
-
-                  {/* Desktop Table View */}
-                  <div className="hidden sm:block overflow-x-auto">
-                    <table className="w-full">
-                      <thead>
-                        <tr className="border-b border-gray-200 dark:border-gray-600">
-                          <th className="text-left py-3 px-4 font-semibold text-gray-900 dark:text-white">Name</th>
-                          <th className="text-left py-3 px-4 font-semibold text-gray-900 dark:text-white">Ingredients</th>
-                          <th className="text-left py-3 px-4 font-semibold text-gray-900 dark:text-white">Actions</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {meals
-                          .filter(meal => meal.type === mealType)
-                          .map((meal) => (
-                            <tr key={meal.id} className="border-b border-gray-100 dark:border-gray-700">
-                              <td className="py-3 px-4 text-gray-900 dark:text-white">{meal.name}</td>
-                              <td className="py-3 px-4">
-                                <div className="flex flex-wrap gap-1">
-                                  {meal.ingredients.map((ingredientId) => (
-                                    <span
-                                      key={ingredientId}
-                                      className="px-2 py-1 bg-blue-100 dark:bg-blue-900/30 text-blue-800 dark:text-blue-300 text-xs rounded-full"
-                                    >
-                                      {getIngredientName(ingredientId)}
-                                    </span>
-                                  ))}
-                                </div>
-                              </td>
-                              <td className="py-3 px-4">
-                                <button
-                                  onClick={() => deleteMeal(meal.id)}
-                                  className="text-red-600 hover:text-red-800 transition-colors"
-                                >
-                                  Delete
-                                </button>
-                              </td>
-                            </tr>
-                          ))}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* Calendar Section */}
-        {activeSection === 'calendar' && (
-          <div className="bg-white dark:bg-gray-800 rounded-xl shadow-lg p-4 sm:p-6">
-            <h2 className="text-xl sm:text-2xl font-bold text-gray-900 dark:text-white mb-4 sm:mb-6">Weekly Meal Calendar</h2>
-            
-            {/* Mobile Calendar - Vertical Stack */}
-            <div className="block sm:hidden space-y-4">
-              {calendar.map((day) => {
-                const date = new Date(day.date);
-                const dayName = date.toLocaleDateString('en-US', { weekday: 'long' });
-                const dayNumber = date.getDate();
-                const monthName = date.toLocaleDateString('en-US', { month: 'short' });
-                
-                return (
-                  <div key={day.date} className="border border-gray-200 dark:border-gray-600 rounded-lg p-4">
-                    <div className="text-center mb-4 pb-3 border-b border-gray-200 dark:border-gray-600">
-                      <div className="text-sm font-semibold text-gray-600 dark:text-gray-400">{dayName}</div>
-                      <div className="text-lg font-bold text-gray-900 dark:text-white">{monthName} {dayNumber}</div>
-                    </div>
-                    
-                    {/* Breakfast */}
-                    <div className="mb-4">
-                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                        Breakfast
-                      </label>
-                      <select
-                        value={day.breakfast || ''}
-                        onChange={(e) => assignMealToCalendar(day.date, 'breakfast', e.target.value)}
-                        className="w-full text-sm px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-gray-700 dark:text-white"
-                      >
-                        <option value="">Select meal</option>
-                        {meals
-                          .filter(meal => meal.type === 'breakfast')
-                          .map(meal => (
-                            <option key={meal.id} value={meal.id}>{meal.name}</option>
-                          ))}
-                      </select>
-                    </div>
-                    
-                    {/* Lunch */}
-                    <div className="mb-4">
-                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                        Lunch
-                      </label>
-                      <select
-                        value={day.lunch || ''}
-                        onChange={(e) => assignMealToCalendar(day.date, 'lunch', e.target.value)}
-                        className="w-full text-sm px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-gray-700 dark:text-white"
-                      >
-                        <option value="">Select meal</option>
-                        {meals
-                          .filter(meal => meal.type === 'lunch')
-                          .map(meal => (
-                            <option key={meal.id} value={meal.id}>{meal.name}</option>
-                          ))}
-                      </select>
-                    </div>
-                    
-                    {/* Dinner */}
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                        Dinner
-                      </label>
-                      <select
-                        value={day.dinner || ''}
-                        onChange={(e) => assignMealToCalendar(day.date, 'dinner', e.target.value)}
-                        className="w-full text-sm px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-gray-700 dark:text-white"
-                      >
-                        <option value="">Select meal</option>
-                        {meals
-                          .filter(meal => meal.type === 'dinner')
-                          .map(meal => (
-                            <option key={meal.id} value={meal.id}>{meal.name}</option>
-                          ))}
-                      </select>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-
-            {/* Desktop Calendar - Grid Layout */}
-            <div className="hidden sm:grid grid-cols-7 gap-4">
-              {calendar.map((day) => {
-                const date = new Date(day.date);
-                const dayName = date.toLocaleDateString('en-US', { weekday: 'short' });
-                const dayNumber = date.getDate();
-                
-                return (
-                  <div key={day.date} className="border border-gray-200 dark:border-gray-600 rounded-lg p-3">
-                    <div className="text-center mb-3">
-                      <div className="text-xs font-semibold text-gray-600 dark:text-gray-400">{dayName}</div>
-                      <div className="text-sm font-bold text-gray-900 dark:text-white">{dayNumber}</div>
-                    </div>
-                    
-                    {/* Breakfast */}
-                    <div className="mb-2">
-                      <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
-                        Breakfast
-                      </label>
-                      <select
-                        value={day.breakfast || ''}
-                        onChange={(e) => assignMealToCalendar(day.date, 'breakfast', e.target.value)}
-                        className="w-full text-xs px-2 py-1 border border-gray-300 dark:border-gray-600 rounded focus:ring-1 focus:ring-blue-500 focus:border-transparent dark:bg-gray-700 dark:text-white"
-                      >
-                        <option value="">Select meal</option>
-                        {meals
-                          .filter(meal => meal.type === 'breakfast')
-                          .map(meal => (
-                            <option key={meal.id} value={meal.id}>{meal.name}</option>
-                          ))}
-                      </select>
-                    </div>
-                    
-                    {/* Lunch */}
-                    <div className="mb-2">
-                      <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
-                        Lunch
-                      </label>
-                      <select
-                        value={day.lunch || ''}
-                        onChange={(e) => assignMealToCalendar(day.date, 'lunch', e.target.value)}
-                        className="w-full text-xs px-2 py-1 border border-gray-300 dark:border-gray-600 rounded focus:ring-1 focus:ring-blue-500 focus:border-transparent dark:bg-gray-700 dark:text-white"
-                      >
-                        <option value="">Select meal</option>
-                        {meals
-                          .filter(meal => meal.type === 'lunch')
-                          .map(meal => (
-                            <option key={meal.id} value={meal.id}>{meal.name}</option>
-                          ))}
-                      </select>
-                    </div>
-                    
-                    {/* Dinner */}
-                    <div>
-                      <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
-                        Dinner
-                      </label>
-                      <select
-                        value={day.dinner || ''}
-                        onChange={(e) => assignMealToCalendar(day.date, 'dinner', e.target.value)}
-                        className="w-full text-xs px-2 py-1 border border-gray-300 dark:border-gray-600 rounded focus:ring-1 focus:ring-blue-500 focus:border-transparent dark:bg-gray-700 dark:text-white"
-                      >
-                        <option value="">Select meal</option>
-                        {meals
-                          .filter(meal => meal.type === 'dinner')
-                          .map(meal => (
-                            <option key={meal.id} value={meal.id}>{meal.name}</option>
-                          ))}
-                      </select>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        )}
-          </>
-        )}
-      </main>
+            );
+          })}
+        </div>
+      ))}
     </div>
   );
 }

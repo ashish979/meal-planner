@@ -22,6 +22,8 @@ export interface Meal {
   name: string
   type: 'breakfast' | 'lunch' | 'dinner'
   ingredients: string[]
+  is_veg?: boolean
+  image?: string
   created_at: string
   updated_at: string
 }
