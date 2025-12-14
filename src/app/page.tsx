@@ -192,27 +192,28 @@ export default function Home() {
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
       {/* Header */}
       <header className="bg-white dark:bg-gray-800 shadow-sm border-b border-gray-200 dark:border-gray-700">
-        <div className="container mx-auto px-4 sm:px-6 py-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center space-x-4">
-              <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Meal Planner</h1>
+        <div className="container mx-auto px-4 sm:px-6 py-3 sm:py-4">
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 sm:gap-0">
+            <div className="flex items-center space-x-2 sm:space-x-4 w-full sm:w-auto">
+              <h1 className="text-xl sm:text-2xl font-bold text-gray-900 dark:text-white">Meal Planner</h1>
               <button
                 onClick={goToToday}
-                className="px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                className="px-3 sm:px-4 py-1.5 sm:py-2 text-xs sm:text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
               >
                 Today
               </button>
             </div>
-            <div className="flex items-center space-x-4">
+            <div className="flex items-center space-x-2 sm:space-x-4 w-full sm:w-auto">
               <button
                 onClick={handleAutoSuggest}
-                className="px-4 py-2 text-sm bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
+                className="flex-1 sm:flex-none px-3 sm:px-4 py-1.5 sm:py-2 text-xs sm:text-sm bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
               >
-                Auto Suggest Week
+                <span className="hidden sm:inline">Auto Suggest Week</span>
+                <span className="sm:hidden">Auto Suggest</span>
               </button>
               <Link
                 href="/meals"
-                className="px-4 py-2 text-sm bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors"
+                className="flex-1 sm:flex-none px-3 sm:px-4 py-1.5 sm:py-2 text-xs sm:text-sm bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors text-center"
               >
                 Manage Meals
               </Link>
@@ -223,9 +224,9 @@ export default function Home() {
 
       {/* Calendar Controls */}
       <div className="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700">
-        <div className="container mx-auto px-4 sm:px-6 py-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center space-x-4">
+        <div className="container mx-auto px-4 sm:px-6 py-3 sm:py-4">
+          <div className="flex flex-col sm:flex-row items-center justify-between gap-3 sm:gap-0">
+            <div className="flex items-center space-x-2 sm:space-x-4 w-full sm:w-auto justify-between sm:justify-start">
               <button
                 onClick={() => navigateDate('prev')}
                 className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
@@ -234,7 +235,7 @@ export default function Home() {
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
                 </svg>
               </button>
-              <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
+              <h2 className="text-base sm:text-lg font-semibold text-gray-900 dark:text-white text-center sm:text-left">
                 {currentDate.toLocaleDateString('en-US', { 
                   month: 'long', 
                   year: 'numeric',
@@ -250,12 +251,12 @@ export default function Home() {
                 </svg>
               </button>
             </div>
-            <div className="flex items-center space-x-2 bg-gray-100 dark:bg-gray-700 rounded-lg p-1">
+            <div className="flex items-center space-x-1 sm:space-x-2 bg-gray-100 dark:bg-gray-700 rounded-lg p-1 w-full sm:w-auto justify-center">
               {(['day', 'week', 'month'] as ViewMode[]).map((mode) => (
                 <button
                   key={mode}
                   onClick={() => setViewMode(mode)}
-                  className={`px-4 py-2 text-sm font-medium rounded-md transition-colors capitalize ${
+                  className={`px-3 sm:px-4 py-1.5 sm:py-2 text-xs sm:text-sm font-medium rounded-md transition-colors capitalize flex-1 sm:flex-none ${
                     viewMode === mode
                       ? 'bg-white dark:bg-gray-600 text-gray-900 dark:text-white shadow-sm'
                       : 'text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white'
@@ -279,7 +280,7 @@ export default function Home() {
       )}
 
       {/* Calendar View */}
-      <main className="container mx-auto px-4 sm:px-6 py-6">
+      <main className="container mx-auto px-2 sm:px-4 md:px-6 py-4 sm:py-6">
         {loading ? (
           <div className="flex items-center justify-center py-12">
             <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
@@ -511,65 +512,128 @@ function WeekView({
   const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
   const mealTypes: Array<'breakfast' | 'lunch' | 'dinner'> = ['breakfast', 'lunch', 'dinner'];
   const mealColors = { breakfast: 'bg-yellow-100 dark:bg-yellow-900/30', lunch: 'bg-green-100 dark:bg-green-900/30', dinner: 'bg-blue-100 dark:bg-blue-900/30' };
+  const mealLabels = { breakfast: 'Breakfast', lunch: 'Lunch', dinner: 'Dinner' };
 
   return (
-    <div className="overflow-x-auto">
-      <table className="w-full">
-        <thead>
-          <tr>
-            <th className="p-4 text-left text-sm font-medium text-gray-500 dark:text-gray-400 border-b border-gray-200 dark:border-gray-700">Time</th>
-            {calendar.map((day) => {
-              const date = new Date(day.date);
-              return (
-                <th key={day.date} className="p-4 text-center text-sm font-medium text-gray-500 dark:text-gray-400 border-b border-gray-200 dark:border-gray-700 min-w-[120px]">
-                  <div>{days[date.getDay()]}</div>
-                  <div className="text-lg font-semibold text-gray-900 dark:text-white">{date.getDate()}</div>
-                </th>
-              );
-            })}
-          </tr>
-        </thead>
-        <tbody>
-          {mealTypes.map((type) => (
-            <tr key={type} className="border-b border-gray-200 dark:border-gray-700">
-              <td className="p-4 font-medium text-gray-900 dark:text-white capitalize">{type}</td>
-              {calendar.map((day) => {
-                const mealId = day[type];
-                const meal = meals.find(m => m.id === mealId);
-                return (
-                  <td key={`${day.date}-${type}`} className="p-2">
-                    {meal ? (
-                      <div
-                        onClick={() => onMealClick(mealId)}
-                        className={`cursor-pointer p-2 rounded-lg ${mealColors[type]} hover:opacity-80 transition-opacity`}
-                      >
-                        <p className="text-sm font-medium text-gray-900 dark:text-white truncate">{meal.name}</p>
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            onRemoveMeal(day.date, type);
-                          }}
-                          className="text-xs text-red-600 hover:text-red-800 mt-1"
-                        >
-                          Remove
-                        </button>
+    <>
+      {/* Mobile View - Vertical Cards */}
+      <div className="block md:hidden space-y-4 p-4">
+        {calendar.map((day) => {
+          const date = new Date(day.date);
+          const dayName = days[date.getDay()];
+          const dayNumber = date.getDate();
+          const monthName = date.toLocaleDateString('en-US', { month: 'short' });
+          
+          return (
+            <div key={day.date} className="border border-gray-200 dark:border-gray-700 rounded-lg p-4">
+              <div className="mb-4 pb-3 border-b border-gray-200 dark:border-gray-600">
+                <div className="text-sm font-semibold text-gray-600 dark:text-gray-400">{dayName}</div>
+                <div className="text-lg font-bold text-gray-900 dark:text-white">{monthName} {dayNumber}</div>
+              </div>
+              
+              <div className="space-y-3">
+                {mealTypes.map((type) => {
+                  const mealId = day[type];
+                  const meal = meals.find(m => m.id === mealId);
+                  
+                  return (
+                    <div key={type} className="border border-gray-200 dark:border-gray-600 rounded-lg p-3">
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="text-sm font-medium text-gray-700 dark:text-gray-300 capitalize">
+                          {mealLabels[type]}
+                        </span>
+                        {mealId && (
+                          <button
+                            onClick={() => onRemoveMeal(day.date, type)}
+                            className="text-xs text-red-600 hover:text-red-800"
+                          >
+                            Remove
+                          </button>
+                        )}
                       </div>
-                    ) : (
-                      <button
-                        onClick={() => onAddMeal(day.date, type)}
-                        className="w-full p-2 text-sm text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-lg hover:border-gray-400 dark:hover:border-gray-500 transition-colors"
-                      >
-                        + Add
-                      </button>
-                    )}
-                  </td>
+                      {meal ? (
+                        <div
+                          onClick={() => onMealClick(mealId)}
+                          className={`cursor-pointer p-2 rounded-lg ${mealColors[type]} hover:opacity-80 transition-opacity`}
+                        >
+                          <p className="text-sm font-medium text-gray-900 dark:text-white">{meal.name}</p>
+                        </div>
+                      ) : (
+                        <button
+                          onClick={() => onAddMeal(day.date, type)}
+                          className="w-full p-2 text-sm text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-lg hover:border-gray-400 dark:hover:border-gray-500 transition-colors"
+                        >
+                          + Add {mealLabels[type]}
+                        </button>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Desktop View - Table */}
+      <div className="hidden md:block overflow-x-auto">
+        <table className="w-full">
+          <thead>
+            <tr>
+              <th className="p-4 text-left text-sm font-medium text-gray-500 dark:text-gray-400 border-b border-gray-200 dark:border-gray-700">Time</th>
+              {calendar.map((day) => {
+                const date = new Date(day.date);
+                return (
+                  <th key={day.date} className="p-4 text-center text-sm font-medium text-gray-500 dark:text-gray-400 border-b border-gray-200 dark:border-gray-700 min-w-[120px]">
+                    <div>{days[date.getDay()]}</div>
+                    <div className="text-lg font-semibold text-gray-900 dark:text-white">{date.getDate()}</div>
+                  </th>
                 );
               })}
             </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
+          </thead>
+          <tbody>
+            {mealTypes.map((type) => (
+              <tr key={type} className="border-b border-gray-200 dark:border-gray-700">
+                <td className="p-4 font-medium text-gray-900 dark:text-white capitalize">{type}</td>
+                {calendar.map((day) => {
+                  const mealId = day[type];
+                  const meal = meals.find(m => m.id === mealId);
+                  return (
+                    <td key={`${day.date}-${type}`} className="p-2">
+                      {meal ? (
+                        <div
+                          onClick={() => onMealClick(mealId)}
+                          className={`cursor-pointer p-2 rounded-lg ${mealColors[type]} hover:opacity-80 transition-opacity`}
+                        >
+                          <p className="text-sm font-medium text-gray-900 dark:text-white truncate">{meal.name}</p>
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              onRemoveMeal(day.date, type);
+                            }}
+                            className="text-xs text-red-600 hover:text-red-800 mt-1"
+                          >
+                            Remove
+                          </button>
+                        </div>
+                      ) : (
+                        <button
+                          onClick={() => onAddMeal(day.date, type)}
+                          className="w-full p-2 text-sm text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-lg hover:border-gray-400 dark:hover:border-gray-500 transition-colors"
+                        >
+                          + Add
+                        </button>
+                      )}
+                    </td>
+                  );
+                })}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </>
   );
 }
 
