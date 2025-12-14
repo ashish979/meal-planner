@@ -182,14 +182,50 @@ export const calendarService = {
   // Update specific meal for a date
   async updateMeal(date: string, mealType: 'breakfast' | 'lunch' | 'dinner', mealId: string | null): Promise<CalendarDay> {
     isSupabaseConfigured()
-    const { data, error } = await supabase!
+    
+    // First, check if a record exists for this date
+    const { data: existing } = await supabase!
       .from('calendar_days')
-      .upsert([{ date, [mealType]: mealId }])
-      .select()
+      .select('*')
+      .eq('date', date)
       .single()
     
-    if (error) throw error
-    return data
+    if (existing) {
+      // Record exists, update it
+      const updateData: any = { [mealType]: mealId }
+      const { data, error } = await supabase!
+        .from('calendar_days')
+        .update(updateData)
+        .eq('date', date)
+        .select()
+        .single()
+      
+      if (error) throw error
+      return data
+    } else {
+      // Record doesn't exist, only insert if we're adding a meal (not removing)
+      if (mealId) {
+        const { data, error } = await supabase!
+          .from('calendar_days')
+          .insert([{ date, [mealType]: mealId }])
+          .select()
+          .single()
+        
+        if (error) throw error
+        return data
+      } else {
+        // Trying to remove a meal from a non-existent record, return empty structure
+        return {
+          id: '',
+          date,
+          breakfast: undefined,
+          lunch: undefined,
+          dinner: undefined,
+          created_at: '',
+          updated_at: ''
+        }
+      }
+    }
   },
 
   // Delete calendar day
