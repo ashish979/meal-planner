@@ -25,17 +25,36 @@ function MealsPageContent() {
   const [image, setImage] = useState<string>('');
   const [autoFetched, setAutoFetched] = useState(false);
 
-  // Check if we need to add meal to calendar
+  // Check if we need to add meal to calendar or edit
   const dateParam = searchParams.get('date');
   const typeParam = searchParams.get('type') as 'breakfast' | 'lunch' | 'dinner' | null;
+  const editParam = searchParams.get('edit');
+  const [editingMealId, setEditingMealId] = useState<string | null>(null);
 
   useEffect(() => {
     loadMeals();
     if (dateParam && typeParam) {
       setShowCreateForm(true);
       setMealType(typeParam);
+    } else if (editParam) {
+      setEditingMealId(editParam);
+      setShowCreateForm(true);
     }
-  }, [dateParam, typeParam]);
+  }, [dateParam, typeParam, editParam]);
+
+  useEffect(() => {
+    if (editingMealId && meals.length > 0) {
+      const mealToEdit = meals.find(m => m.id === editingMealId);
+      if (mealToEdit) {
+        setMealName(mealToEdit.name);
+        setMealType(mealToEdit.type);
+        setIsVeg(mealToEdit.is_veg ?? true);
+        setIngredients(mealToEdit.ingredients);
+        setImage(mealToEdit.image || '');
+        setAutoFetched(false);
+      }
+    }
+  }, [editingMealId, meals]);
 
   const loadMeals = async () => {
     try {
@@ -75,19 +94,31 @@ function MealsPageContent() {
 
     try {
       setCreating(true);
-      const newMeal = await mealService.create(mealName, mealType, ingredients, isVeg, image);
       
-      // If date and type are provided, add to calendar
-      if (dateParam && typeParam) {
-        await calendarService.updateMeal(dateParam, typeParam, newMeal.id);
-        router.push('/');
-      } else {
-        setMeals([...meals, newMeal]);
+      if (editingMealId) {
+        // Update existing meal
+        const updatedMeal = await mealService.update(editingMealId, mealName, mealType, ingredients, isVeg, image);
+        setMeals(meals.map(m => m.id === editingMealId ? updatedMeal : m));
         setShowCreateForm(false);
         resetForm();
+        setEditingMealId(null);
+        router.push(`/meals/${editingMealId}`);
+      } else {
+        // Create new meal
+        const newMeal = await mealService.create(mealName, mealType, ingredients, isVeg, image);
+        
+        // If date and type are provided, add to calendar
+        if (dateParam && typeParam) {
+          await calendarService.updateMeal(dateParam, typeParam, newMeal.id);
+          router.push('/');
+        } else {
+          setMeals([...meals, newMeal]);
+          setShowCreateForm(false);
+          resetForm();
+        }
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to create meal');
+      setError(err instanceof Error ? err.message : 'Failed to save meal');
     } finally {
       setCreating(false);
     }
@@ -111,6 +142,7 @@ function MealsPageContent() {
     setIngredients([]);
     setImage('');
     setAutoFetched(false);
+    setEditingMealId(null);
   };
 
   const addIngredient = (ingredient: string) => {
@@ -162,7 +194,9 @@ function MealsPageContent() {
         {/* Create Meal Form */}
         {showCreateForm && (
           <div className="mb-6 bg-white dark:bg-gray-800 rounded-lg shadow-lg p-6">
-            <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-4">Create New Meal</h2>
+            <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-4">
+              {editingMealId ? 'Edit Meal' : 'Create New Meal'}
+            </h2>
             
             <div className="space-y-4">
               <div>
@@ -296,7 +330,13 @@ function MealsPageContent() {
                 disabled={creating || !mealName.trim()}
                 className="w-full px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                {creating ? 'Creating...' : dateParam ? 'Create & Add to Calendar' : 'Create Meal'}
+                {creating 
+                  ? (editingMealId ? 'Updating...' : 'Creating...') 
+                  : editingMealId 
+                    ? 'Update Meal' 
+                    : dateParam 
+                      ? 'Create & Add to Calendar' 
+                      : 'Create Meal'}
               </button>
             </div>
           </div>
