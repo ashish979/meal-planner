@@ -89,11 +89,11 @@ export const mealService = {
   },
 
   // Add new meal
-  async create(name: string, type: 'breakfast' | 'lunch' | 'dinner', ingredients: string[], isVeg: boolean = true, image?: string): Promise<Meal> {
+  async create(name: string, type: 'breakfast' | 'lunch' | 'dinner', ingredients: string[], isVeg: boolean = true, image?: string, prepNotes?: string): Promise<Meal> {
     isSupabaseConfigured()
     const { data, error } = await supabase!
       .from('meals')
-      .insert([{ name, type, ingredients, is_veg: isVeg, image }])
+      .insert([{ name, type, ingredients, is_veg: isVeg, image, prep_notes: prepNotes }])
       .select()
       .single()
     
@@ -113,11 +113,11 @@ export const mealService = {
   },
 
   // Update meal
-  async update(id: string, name: string, type: 'breakfast' | 'lunch' | 'dinner', ingredients: string[], isVeg: boolean = true, image?: string): Promise<Meal> {
+  async update(id: string, name: string, type: 'breakfast' | 'lunch' | 'dinner', ingredients: string[], isVeg: boolean = true, image?: string, prepNotes?: string): Promise<Meal> {
     isSupabaseConfigured()
     const { data, error } = await supabase!
       .from('meals')
-      .update({ name, type, ingredients, is_veg: isVeg, image })
+      .update({ name, type, ingredients, is_veg: isVeg, image, prep_notes: prepNotes })
       .eq('id', id)
       .select()
       .single()

@@ -24,6 +24,7 @@ export interface Meal {
   ingredients: string[]
   is_veg?: boolean
   image?: string
+  prep_notes?: string  // Notes for meal preparation (shown as reminder)
   created_at: string
   updated_at: string
 }

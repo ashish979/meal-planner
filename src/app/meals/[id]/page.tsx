@@ -119,6 +119,21 @@ export default function MealDetailsPage() {
             </div>
           </div>
 
+          {/* Prep Notes Section */}
+          {meal.prep_notes && (
+            <div className="p-6 border-b border-gray-200 dark:border-gray-700">
+              <div className="flex items-start gap-3 p-4 bg-amber-50 dark:bg-amber-900/20 rounded-lg border border-amber-200 dark:border-amber-800">
+                <svg className="w-6 h-6 text-amber-500 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
+                </svg>
+                <div>
+                  <h3 className="text-sm font-semibold text-amber-800 dark:text-amber-300 mb-1">Preparation Notes</h3>
+                  <p className="text-amber-700 dark:text-amber-400">{meal.prep_notes}</p>
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* Ingredients Section */}
           <div className="p-6">
             <h2 className="text-xl font-semibold text-gray-900 dark:text-white mb-4">Ingredients</h2>

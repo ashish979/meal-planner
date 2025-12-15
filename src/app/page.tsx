@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, DragEvent } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { mealService, calendarService } from '@/lib/database';
@@ -21,6 +21,7 @@ export default function Home() {
   const [showMealModal, setShowMealModal] = useState(false);
   const [selectedDate, setSelectedDate] = useState<string>('');
   const [selectedMealType, setSelectedMealType] = useState<'breakfast' | 'lunch' | 'dinner'>('breakfast');
+  const [tomorrowReminders, setTomorrowReminders] = useState<{ meal: Meal; mealType: string }[]>([]);
 
   // Load data from Supabase
   const loadData = useCallback(async () => {
@@ -55,6 +56,9 @@ export default function Home() {
       });
       
       setCalendar(fullCalendar);
+
+      // Load tomorrow's reminders
+      await loadTomorrowReminders(mealsData);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load data');
       console.error('Error loading data:', err);
@@ -62,6 +66,40 @@ export default function Home() {
       setLoading(false);
     }
   }, [currentDate, viewMode]);
+
+  const loadTomorrowReminders = async (mealsData: Meal[]) => {
+    try {
+      const tomorrow = new Date();
+      tomorrow.setDate(tomorrow.getDate() + 1);
+      const tomorrowStr = tomorrow.toISOString().split('T')[0];
+      
+      const tomorrowData = await calendarService.getByDate(tomorrowStr);
+      
+      if (tomorrowData) {
+        const reminders: { meal: Meal; mealType: string }[] = [];
+        
+        const checkMeal = (mealId: string | undefined, mealType: string) => {
+          if (mealId) {
+            const meal = mealsData.find(m => m.id === mealId);
+            if (meal?.prep_notes) {
+              reminders.push({ meal, mealType });
+            }
+          }
+        };
+        
+        checkMeal(tomorrowData.breakfast, 'Breakfast');
+        checkMeal(tomorrowData.lunch, 'Lunch');
+        checkMeal(tomorrowData.dinner, 'Dinner');
+        
+        setTomorrowReminders(reminders);
+      } else {
+        setTomorrowReminders([]);
+      }
+    } catch {
+      // Silently fail for reminders
+      setTomorrowReminders([]);
+    }
+  };
 
   const getStartDate = (): string => {
     const date = new Date(currentDate);
@@ -144,6 +182,43 @@ export default function Home() {
     }
   };
 
+  // Drag and Drop handlers
+  const handleDragStart = (e: DragEvent<HTMLDivElement>, mealId: string, sourceDate: string, sourceMealType: 'breakfast' | 'lunch' | 'dinner') => {
+    e.dataTransfer.setData('mealId', mealId);
+    e.dataTransfer.setData('sourceDate', sourceDate);
+    e.dataTransfer.setData('sourceMealType', sourceMealType);
+    e.dataTransfer.effectAllowed = 'move';
+  };
+
+  const handleDragOver = (e: DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+  };
+
+  const handleDrop = async (e: DragEvent<HTMLDivElement>, targetDate: string, targetMealType: 'breakfast' | 'lunch' | 'dinner') => {
+    e.preventDefault();
+    const mealId = e.dataTransfer.getData('mealId');
+    const sourceDate = e.dataTransfer.getData('sourceDate');
+    const sourceMealType = e.dataTransfer.getData('sourceMealType') as 'breakfast' | 'lunch' | 'dinner';
+    
+    if (!mealId) return;
+
+    try {
+      // If moving to a different slot, remove from source and add to target
+      if (sourceDate !== targetDate || sourceMealType !== targetMealType) {
+        // Remove from source (if it had a source - could be from meal list)
+        if (sourceDate && sourceMealType) {
+          await calendarService.updateMeal(sourceDate, sourceMealType, null);
+        }
+        // Add to target
+        await calendarService.updateMeal(targetDate, targetMealType, mealId);
+        await loadData();
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to move meal');
+    }
+  };
+
   const handleAutoSuggest = async () => {
     // Simple auto-suggest: randomly assign available meals to empty slots
     try {
@@ -190,6 +265,43 @@ export default function Home() {
 
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
+      {/* Tomorrow's Meal Preparation Reminders */}
+      {tomorrowReminders.length > 0 && (
+        <div className="bg-gradient-to-r from-amber-500 to-orange-500 text-white">
+          <div className="container mx-auto px-4 sm:px-6 py-3">
+            <div className="flex items-start gap-3">
+              <svg className="w-6 h-6 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
+              </svg>
+              <div className="flex-1">
+                <h3 className="font-semibold text-lg mb-2">🔔 Prepare for Tomorrow&apos;s Meals</h3>
+                <div className="space-y-2">
+                  {tomorrowReminders.map(({ meal, mealType }, index) => (
+                    <div key={index} className="bg-white/20 rounded-lg p-3 backdrop-blur-sm">
+                      <div className="flex items-center gap-2 mb-1">
+                        <span className="font-medium">{mealType}:</span>
+                        <span>{meal.name}</span>
+                      </div>
+                      <p className="text-sm text-white/90 pl-4 border-l-2 border-white/50">
+                        {meal.prep_notes}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+              <button
+                onClick={() => setTomorrowReminders([])}
+                className="text-white/80 hover:text-white p-1"
+              >
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Header */}
       <header className="bg-white dark:bg-gray-800 shadow-sm border-b border-gray-200 dark:border-gray-700">
         <div className="container mx-auto px-4 sm:px-6 py-3 sm:py-4">
@@ -296,6 +408,9 @@ export default function Home() {
                 onMealClick={handleMealClick}
                 onAddMeal={handleAddMeal}
                 onRemoveMeal={handleRemoveMeal}
+                onDragStart={handleDragStart}
+                onDragOver={handleDragOver}
+                onDrop={handleDrop}
               />
             )}
             {viewMode === 'week' && (
@@ -305,6 +420,9 @@ export default function Home() {
                 onMealClick={handleMealClick}
                 onAddMeal={handleAddMeal}
                 onRemoveMeal={handleRemoveMeal}
+                onDragStart={handleDragStart}
+                onDragOver={handleDragOver}
+                onDrop={handleDrop}
               />
             )}
             {viewMode === 'month' && (
@@ -334,7 +452,7 @@ export default function Home() {
   );
 }
 
-// Meal Selection Modal Component
+// Meal Selection Modal Component with Search
 function MealSelectionModal({
   meals,
   mealType,
@@ -348,13 +466,35 @@ function MealSelectionModal({
   onCreateNew: () => void;
   onClose: () => void;
 }) {
-  const filteredMeals = meals.filter(m => m.type === mealType);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [showAllMeals, setShowAllMeals] = useState(false);
+
+  // Filter meals based on search and type
+  const filteredMeals = meals.filter(m => {
+    const matchesSearch = m.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      m.ingredients.some(ing => ing.toLowerCase().includes(searchQuery.toLowerCase()));
+    const matchesType = showAllMeals || m.type === mealType;
+    return matchesSearch && matchesType;
+  });
+
+  // Group meals by type when showing all
+  const groupedMeals = showAllMeals ? {
+    breakfast: filteredMeals.filter(m => m.type === 'breakfast'),
+    lunch: filteredMeals.filter(m => m.type === 'lunch'),
+    dinner: filteredMeals.filter(m => m.type === 'dinner')
+  } : { [mealType]: filteredMeals };
+
+  const mealTypeColors = {
+    breakfast: 'bg-yellow-100 dark:bg-yellow-900/30 text-yellow-800 dark:text-yellow-300',
+    lunch: 'bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-300',
+    dinner: 'bg-blue-100 dark:bg-blue-900/30 text-blue-800 dark:text-blue-300'
+  };
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
       <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl max-w-2xl w-full max-h-[80vh] overflow-hidden flex flex-col">
         <div className="p-6 border-b border-gray-200 dark:border-gray-700">
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between mb-4">
             <h2 className="text-2xl font-bold text-gray-900 dark:text-white">
               Select {mealType.charAt(0).toUpperCase() + mealType.slice(1)} Meal
             </h2>
@@ -367,40 +507,96 @@ function MealSelectionModal({
               </svg>
             </button>
           </div>
+
+          {/* Search Input */}
+          <div className="relative mb-4">
+            <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+            </svg>
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Search meals by name or ingredient..."
+              className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-gray-700 dark:text-white"
+              autoFocus
+            />
+          </div>
+
+          {/* Toggle to show all meals */}
+          <label className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-300">
+            <input
+              type="checkbox"
+              checked={showAllMeals}
+              onChange={(e) => setShowAllMeals(e.target.checked)}
+              className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+            />
+            Show all meals (not just {mealType})
+          </label>
         </div>
 
         <div className="flex-1 overflow-y-auto p-6">
           {filteredMeals.length === 0 ? (
             <div className="text-center py-8">
               <p className="text-gray-500 dark:text-gray-400 mb-4">
-                No {mealType} meals available. Create one now!
+                {searchQuery 
+                  ? `No meals found matching "${searchQuery}"`
+                  : `No ${mealType} meals available. Create one now!`}
               </p>
             </div>
           ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {filteredMeals.map((meal) => (
-                <div
-                  key={meal.id}
-                  onClick={() => onSelectMeal(meal.id)}
-                  className="p-4 border border-gray-200 dark:border-gray-700 rounded-lg cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
-                >
-                  <h3 className="font-semibold text-gray-900 dark:text-white mb-2">{meal.name}</h3>
-                  <div className="flex flex-wrap gap-1">
-                    {meal.ingredients.slice(0, 3).map((ing, idx) => (
-                      <span
-                        key={idx}
-                        className="px-2 py-1 text-xs bg-gray-100 dark:bg-gray-600 text-gray-700 dark:text-gray-300 rounded"
-                      >
-                        {ing}
-                      </span>
-                    ))}
-                    {meal.ingredients.length > 3 && (
-                      <span className="px-2 py-1 text-xs text-gray-500 dark:text-gray-400">
-                        +{meal.ingredients.length - 3} more
-                      </span>
+            <div className="space-y-6">
+              {Object.entries(groupedMeals).map(([type, typeMeals]) => (
+                typeMeals.length > 0 && (
+                  <div key={type}>
+                    {showAllMeals && (
+                      <h3 className="text-sm font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-3">
+                        {type}
+                      </h3>
                     )}
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      {typeMeals.map((meal) => (
+                        <div
+                          key={meal.id}
+                          onClick={() => onSelectMeal(meal.id)}
+                          className="p-4 border border-gray-200 dark:border-gray-700 rounded-lg cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+                        >
+                          <div className="flex items-start justify-between mb-2">
+                            <h3 className="font-semibold text-gray-900 dark:text-white">{meal.name}</h3>
+                            {showAllMeals && (
+                              <span className={`px-2 py-0.5 text-xs rounded capitalize ${mealTypeColors[meal.type]}`}>
+                                {meal.type}
+                              </span>
+                            )}
+                          </div>
+                          <div className="flex flex-wrap gap-1">
+                            {meal.ingredients.slice(0, 3).map((ing, idx) => (
+                              <span
+                                key={idx}
+                                className="px-2 py-1 text-xs bg-gray-100 dark:bg-gray-600 text-gray-700 dark:text-gray-300 rounded"
+                              >
+                                {ing}
+                              </span>
+                            ))}
+                            {meal.ingredients.length > 3 && (
+                              <span className="px-2 py-1 text-xs text-gray-500 dark:text-gray-400">
+                                +{meal.ingredients.length - 3} more
+                              </span>
+                            )}
+                          </div>
+                          {meal.prep_notes && (
+                            <div className="mt-2 text-xs text-amber-600 dark:text-amber-400 flex items-center gap-1">
+                              <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
+                              </svg>
+                              Has prep notes
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
                   </div>
-                </div>
+                )
               ))}
             </div>
           )}
@@ -425,14 +621,17 @@ function MealSelectionModal({
   );
 }
 
-// Day View Component
+// Day View Component with Drag & Drop
 function DayView({ 
   date, 
   calendar, 
   meals, 
   onMealClick, 
   onAddMeal, 
-  onRemoveMeal 
+  onRemoveMeal,
+  onDragStart,
+  onDragOver,
+  onDrop
 }: {
   date: Date;
   calendar: CalendarDay[];
@@ -440,6 +639,9 @@ function DayView({
   onMealClick: (mealId: string | undefined) => void;
   onAddMeal: (date: string, type: 'breakfast' | 'lunch' | 'dinner') => void;
   onRemoveMeal: (date: string, type: 'breakfast' | 'lunch' | 'dinner') => void;
+  onDragStart: (e: DragEvent<HTMLDivElement>, mealId: string, date: string, type: 'breakfast' | 'lunch' | 'dinner') => void;
+  onDragOver: (e: DragEvent<HTMLDivElement>) => void;
+  onDrop: (e: DragEvent<HTMLDivElement>, date: string, type: 'breakfast' | 'lunch' | 'dinner') => void;
 }) {
   const dateStr = date.toISOString().split('T')[0];
   const day = calendar.find(d => d.date === dateStr);
@@ -458,7 +660,12 @@ function DayView({
           const meal = meals.find(m => m.id === mealId);
           
           return (
-            <div key={type} className="border border-gray-200 dark:border-gray-700 rounded-lg p-4">
+            <div 
+              key={type} 
+              className="border border-gray-200 dark:border-gray-700 rounded-lg p-4"
+              onDragOver={onDragOver}
+              onDrop={(e) => onDrop(e, dateStr, type)}
+            >
               <div className="flex items-center justify-between mb-2">
                 <h4 className="text-lg font-medium text-gray-900 dark:text-white">{mealLabels[type]}</h4>
                 {mealId ? (
@@ -479,13 +686,25 @@ function DayView({
               </div>
               {meal ? (
                 <div
+                  draggable
+                  onDragStart={(e) => onDragStart(e, mealId!, dateStr, type)}
                   onClick={() => onMealClick(mealId)}
-                  className="cursor-pointer p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg hover:bg-blue-100 dark:hover:bg-blue-900/30 transition-colors"
+                  className="cursor-grab active:cursor-grabbing p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg hover:bg-blue-100 dark:hover:bg-blue-900/30 transition-colors"
                 >
                   <p className="font-medium text-gray-900 dark:text-white">{meal.name}</p>
+                  {meal.prep_notes && (
+                    <p className="text-xs text-amber-600 dark:text-amber-400 mt-1 flex items-center gap-1">
+                      <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
+                      </svg>
+                      {meal.prep_notes}
+                    </p>
+                  )}
                 </div>
               ) : (
-                <p className="text-gray-400 dark:text-gray-500 text-sm">No meal scheduled</p>
+                <div className="p-3 border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-lg text-center text-gray-400">
+                  <p className="text-sm">Drop a meal here or click Add Meal</p>
+                </div>
               )}
             </div>
           );
@@ -495,19 +714,25 @@ function DayView({
   );
 }
 
-// Week View Component
+// Week View Component with Drag & Drop
 function WeekView({ 
   calendar, 
   meals, 
   onMealClick, 
   onAddMeal, 
-  onRemoveMeal 
+  onRemoveMeal,
+  onDragStart,
+  onDragOver,
+  onDrop
 }: {
   calendar: CalendarDay[];
   meals: Meal[];
   onMealClick: (mealId: string | undefined) => void;
   onAddMeal: (date: string, type: 'breakfast' | 'lunch' | 'dinner') => void;
   onRemoveMeal: (date: string, type: 'breakfast' | 'lunch' | 'dinner') => void;
+  onDragStart: (e: DragEvent<HTMLDivElement>, mealId: string, date: string, type: 'breakfast' | 'lunch' | 'dinner') => void;
+  onDragOver: (e: DragEvent<HTMLDivElement>) => void;
+  onDrop: (e: DragEvent<HTMLDivElement>, date: string, type: 'breakfast' | 'lunch' | 'dinner') => void;
 }) {
   const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
   const mealTypes: Array<'breakfast' | 'lunch' | 'dinner'> = ['breakfast', 'lunch', 'dinner'];
@@ -537,7 +762,12 @@ function WeekView({
                   const meal = meals.find(m => m.id === mealId);
                   
                   return (
-                    <div key={type} className="border border-gray-200 dark:border-gray-600 rounded-lg p-3">
+                    <div 
+                      key={type} 
+                      className="border border-gray-200 dark:border-gray-600 rounded-lg p-3"
+                      onDragOver={onDragOver}
+                      onDrop={(e) => onDrop(e, day.date, type)}
+                    >
                       <div className="flex items-center justify-between mb-2">
                         <span className="text-sm font-medium text-gray-700 dark:text-gray-300 capitalize">
                           {mealLabels[type]}
@@ -553,10 +783,20 @@ function WeekView({
                       </div>
                       {meal ? (
                         <div
+                          draggable
+                          onDragStart={(e) => onDragStart(e, mealId!, day.date, type)}
                           onClick={() => onMealClick(mealId)}
-                          className={`cursor-pointer p-2 rounded-lg ${mealColors[type]} hover:opacity-80 transition-opacity`}
+                          className={`cursor-grab active:cursor-grabbing p-2 rounded-lg ${mealColors[type]} hover:opacity-80 transition-opacity`}
                         >
                           <p className="text-sm font-medium text-gray-900 dark:text-white">{meal.name}</p>
+                          {meal.prep_notes && (
+                            <p className="text-xs text-amber-600 dark:text-amber-400 mt-1 flex items-center gap-1">
+                              <svg className="w-3 h-3 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
+                              </svg>
+                              <span className="truncate">{meal.prep_notes}</span>
+                            </p>
+                          )}
                         </div>
                       ) : (
                         <button
@@ -600,13 +840,28 @@ function WeekView({
                   const mealId = day[type];
                   const meal = meals.find(m => m.id === mealId);
                   return (
-                    <td key={`${day.date}-${type}`} className="p-2">
+                    <td 
+                      key={`${day.date}-${type}`} 
+                      className="p-2"
+                      onDragOver={onDragOver}
+                      onDrop={(e) => onDrop(e, day.date, type)}
+                    >
                       {meal ? (
                         <div
+                          draggable
+                          onDragStart={(e) => onDragStart(e, mealId!, day.date, type)}
                           onClick={() => onMealClick(mealId)}
-                          className={`cursor-pointer p-2 rounded-lg ${mealColors[type]} hover:opacity-80 transition-opacity`}
+                          className={`cursor-grab active:cursor-grabbing p-2 rounded-lg ${mealColors[type]} hover:opacity-80 transition-opacity`}
                         >
                           <p className="text-sm font-medium text-gray-900 dark:text-white truncate">{meal.name}</p>
+                          {meal.prep_notes && (
+                            <p className="text-xs text-amber-600 dark:text-amber-400 mt-1 flex items-center gap-1" title={meal.prep_notes}>
+                              <svg className="w-3 h-3 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
+                              </svg>
+                              <span className="truncate max-w-[80px]">{meal.prep_notes}</span>
+                            </p>
+                          )}
                           <button
                             onClick={(e) => {
                               e.stopPropagation();
@@ -620,7 +875,7 @@ function WeekView({
                       ) : (
                         <button
                           onClick={() => onAddMeal(day.date, type)}
-                          className="w-full p-2 text-sm text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-lg hover:border-gray-400 dark:hover:border-gray-500 transition-colors"
+                          className="w-full p-2 text-sm text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-lg hover:border-gray-400 dark:hover:border-gray-500 transition-colors min-h-[60px]"
                         >
                           + Add
                         </button>

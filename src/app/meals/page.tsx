@@ -23,6 +23,7 @@ function MealsPageContent() {
   const [isVeg, setIsVeg] = useState(true);
   const [ingredients, setIngredients] = useState<string[]>([]);
   const [image, setImage] = useState<string>('');
+  const [prepNotes, setPrepNotes] = useState<string>('');
   const [autoFetched, setAutoFetched] = useState(false);
 
   // Check if we need to add meal to calendar or edit
@@ -51,6 +52,7 @@ function MealsPageContent() {
         setIsVeg(mealToEdit.is_veg ?? true);
         setIngredients(mealToEdit.ingredients);
         setImage(mealToEdit.image || '');
+        setPrepNotes(mealToEdit.prep_notes || '');
         setAutoFetched(false);
       }
     }
@@ -97,7 +99,7 @@ function MealsPageContent() {
       
       if (editingMealId) {
         // Update existing meal
-        const updatedMeal = await mealService.update(editingMealId, mealName, mealType, ingredients, isVeg, image);
+        const updatedMeal = await mealService.update(editingMealId, mealName, mealType, ingredients, isVeg, image, prepNotes || undefined);
         setMeals(meals.map(m => m.id === editingMealId ? updatedMeal : m));
         setShowCreateForm(false);
         resetForm();
@@ -105,7 +107,7 @@ function MealsPageContent() {
         router.push(`/meals/${editingMealId}`);
       } else {
         // Create new meal
-        const newMeal = await mealService.create(mealName, mealType, ingredients, isVeg, image);
+        const newMeal = await mealService.create(mealName, mealType, ingredients, isVeg, image, prepNotes || undefined);
         
         // If date and type are provided, add to calendar
         if (dateParam && typeParam) {
@@ -141,6 +143,7 @@ function MealsPageContent() {
     setIsVeg(true);
     setIngredients([]);
     setImage('');
+    setPrepNotes('');
     setAutoFetched(false);
     setEditingMealId(null);
   };
@@ -324,6 +327,28 @@ function MealsPageContent() {
                   </div>
                 </div>
               )}
+
+              {/* Prep Notes Section */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  <span className="flex items-center gap-2">
+                    <svg className="w-4 h-4 text-amber-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
+                    </svg>
+                    Preparation Notes (Optional)
+                  </span>
+                </label>
+                <textarea
+                  value={prepNotes}
+                  onChange={(e) => setPrepNotes(e.target.value)}
+                  placeholder="Add notes for meal preparation (e.g., 'Marinate chicken overnight', 'Soak beans the day before'). These will appear as reminders when this meal is scheduled for tomorrow."
+                  rows={3}
+                  className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-gray-700 dark:text-white resize-none"
+                />
+                <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                  💡 These notes will appear as a reminder banner when this meal is scheduled for tomorrow.
+                </p>
+              </div>
 
               <button
                 onClick={handleCreateMeal}
