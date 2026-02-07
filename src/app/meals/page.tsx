@@ -218,6 +218,17 @@ function MealsPageContent() {
     return mealItems.find(mi => mi.id === id)?.name || id;
   };
 
+  // Get meal image - use custom image or first meal item image
+  const getMealImage = (meal: Meal): string | null => {
+    if (meal.image) return meal.image;
+    // Get first meal item with an image
+    for (const itemId of meal.meal_items) {
+      const item = mealItems.find(mi => mi.id === itemId);
+      if (item?.image) return item.image;
+    }
+    return null;
+  };
+
   const mealTypeColors: Record<string, string> = {
     breakfast: 'bg-yellow-100 text-yellow-700',
     lunch: 'bg-green-100 text-green-700',
@@ -319,33 +330,36 @@ function MealsPageContent() {
           </div>
         ) : viewMode === 'grid' ? (
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
-            {filteredMeals.map((meal) => (
-              <div
-                key={meal.id}
-                onClick={() => openEditDialog(meal)}
-                className="bg-[var(--surface)] rounded-xl border border-[var(--border)] overflow-hidden cursor-pointer hover:border-[var(--primary-light)] hover:shadow-soft transition-all"
-              >
-                {meal.image ? (
-                  <img src={meal.image} alt={meal.name} className="w-full h-32 object-cover" />
-                ) : (
-                  <div className="w-full h-32 bg-[var(--surface-secondary)] flex items-center justify-center">
-                    <svg className="w-10 h-10 text-[var(--border)]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                    </svg>
+            {filteredMeals.map((meal) => {
+              const mealImage = getMealImage(meal);
+              return (
+                <div
+                  key={meal.id}
+                  onClick={() => openEditDialog(meal)}
+                  className="bg-[var(--surface)] rounded-xl border border-[var(--border)] overflow-hidden cursor-pointer hover:border-[var(--primary-light)] hover:shadow-soft transition-all"
+                >
+                  {mealImage ? (
+                    <img src={mealImage} alt={meal.name} className="w-full h-32 object-cover" />
+                  ) : (
+                    <div className="w-full h-32 bg-[var(--surface-secondary)] flex items-center justify-center">
+                      <svg className="w-10 h-10 text-[var(--border)]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                      </svg>
+                    </div>
+                  )}
+                  <div className="p-3">
+                    <h3 className="font-medium text-[var(--foreground)] truncate">{meal.name}</h3>
+                    <div className="flex items-center gap-2 mt-2">
+                      <span className={`px-2 py-0.5 text-xs rounded-lg ${mealTypeColors[meal.meal_type]}`}>
+                        {meal.meal_type === 'any' ? 'Any' : meal.meal_type}
+                      </span>
+                      <span className={`w-2.5 h-2.5 rounded-full ${meal.is_veg ? 'bg-green-500' : 'bg-red-500'}`}></span>
+                    </div>
+                    <p className="text-sm text-[var(--text-muted)] mt-2">{meal.meal_items.length} items</p>
                   </div>
-                )}
-                <div className="p-3">
-                  <h3 className="font-medium text-[var(--foreground)] truncate">{meal.name}</h3>
-                  <div className="flex items-center gap-2 mt-2">
-                    <span className={`px-2 py-0.5 text-xs rounded-lg ${mealTypeColors[meal.meal_type]}`}>
-                      {meal.meal_type === 'any' ? 'Any' : meal.meal_type}
-                    </span>
-                    <span className={`w-2.5 h-2.5 rounded-full ${meal.is_veg ? 'bg-green-500' : 'bg-red-500'}`}></span>
-                  </div>
-                  <p className="text-sm text-[var(--text-muted)] mt-2">{meal.meal_items.length} items</p>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         ) : (
           <div className="bg-[var(--surface)] rounded-xl border border-[var(--border)] overflow-hidden">
@@ -359,12 +373,14 @@ function MealsPageContent() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-[var(--border)]">
-                {filteredMeals.map((meal) => (
+                {filteredMeals.map((meal) => {
+                  const mealImage = getMealImage(meal);
+                  return (
                   <tr key={meal.id} className="hover:bg-[var(--surface-secondary)]">
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-3">
-                        {meal.image ? (
-                          <img src={meal.image} alt="" className="w-10 h-10 rounded-lg object-cover" />
+                        {mealImage ? (
+                          <img src={mealImage} alt="" className="w-10 h-10 rounded-lg object-cover" />
                         ) : (
                           <div className="w-10 h-10 rounded-lg bg-[var(--surface-secondary)] flex items-center justify-center">
                             <span className="text-sm text-[var(--text-muted)]">{meal.name[0]}</span>
@@ -390,7 +406,8 @@ function MealsPageContent() {
                       <button onClick={() => handleDelete(meal.id)} className="text-red-500 hover:text-red-600">Delete</button>
                     </td>
                   </tr>
-                ))}
+                  );
+                })}
               </tbody>
             </table>
             {filteredMeals.length === 0 && (

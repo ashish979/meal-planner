@@ -51,13 +51,39 @@
 }
 
 html {
-  color-scheme: light only;
+  color-scheme: light only !important;
+  background-color: #f8faf8 !important;
+}
+
+html, body {
+  background: #f8faf8 !important;
+  background-color: #f8faf8 !important;
+  color: #1f2937 !important;
 }
 
 body {
   background: var(--background);
   color: var(--foreground);
   font-family: 'Inter', 'SF Pro Display', system-ui, sans-serif;
+}
+
+/* Override any dark mode preferences */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: #f8faf8;
+    --foreground: #1f2937;
+    --surface: #ffffff;
+    --surface-secondary: #f1f5f1;
+    --border: #e5e7eb;
+    --text-muted: #6b7280;
+    color-scheme: light only !important;
+  }
+  
+  html, body {
+    background: #f8faf8 !important;
+    background-color: #f8faf8 !important;
+    color: #1f2937 !important;
+  }
 }
 
 /* Smooth transitions */

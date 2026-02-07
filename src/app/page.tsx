@@ -285,6 +285,16 @@ export default function Home() {
       .filter((name): name is string => name !== undefined);
   };
 
+  // Get meal image - use custom image or first meal item image
+  const getMealImage = (meal: Meal): string | null => {
+    if (meal.image) return meal.image;
+    for (const itemId of meal.meal_items) {
+      const item = mealItems.find(mi => mi.id === itemId);
+      if (item?.image) return item.image;
+    }
+    return null;
+  };
+
   return (
     <div className="min-h-screen bg-[var(--background)] flex">
       {/* Desktop Sidebar */}
@@ -447,6 +457,7 @@ export default function Home() {
                 onDragOver={handleDragOver}
                 onDrop={handleDrop}
                 getMealItemNames={getMealItemNames}
+                getMealImage={getMealImage}
               />
             )}
             {viewMode === 'week' && (
@@ -461,15 +472,18 @@ export default function Home() {
                 onDragOver={handleDragOver}
                 onDrop={handleDrop}
                 getMealItemNames={getMealItemNames}
+                getMealImage={getMealImage}
               />
             )}
             {viewMode === 'month' && (
               <MonthView
                 calendar={calendar}
                 meals={meals}
+                mealItems={mealItems}
                 currentDate={currentDate}
                 onMealClick={handleMealClick}
                 onAddMeal={handleAddMeal}
+                getMealImage={getMealImage}
               />
             )}
           </div>
@@ -490,6 +504,7 @@ export default function Home() {
           onCreateNew={handleCreateNewMeal}
           onClose={() => setShowMealModal(false)}
           getMealItemNames={getMealItemNames}
+          getMealImage={getMealImage}
         />
       )}
     </div>
@@ -504,7 +519,8 @@ function MealSelectionModal({
   onSelectMeal,
   onCreateNew,
   onClose,
-  getMealItemNames
+  getMealItemNames,
+  getMealImage
 }: {
   meals: Meal[];
   mealItems: MealItem[];
@@ -513,6 +529,7 @@ function MealSelectionModal({
   onCreateNew: () => void;
   onClose: () => void;
   getMealItemNames: (meal: Meal) => string[];
+  getMealImage: (meal: Meal) => string | null;
 }) {
   const [searchQuery, setSearchQuery] = useState('');
   const [sortBy, setSortBy] = useState<'name' | 'type' | 'recent'>('name');
@@ -621,6 +638,7 @@ function MealSelectionModal({
             <div className="divide-y divide-[var(--border)]">
               {filteredMeals.map((meal) => {
                 const itemNames = getMealItemNames(meal);
+                const mealImage = getMealImage(meal);
                 return (
                   <div
                     key={meal.id}
@@ -628,9 +646,9 @@ function MealSelectionModal({
                     className="flex items-center gap-4 px-5 py-3 cursor-pointer hover:bg-[var(--surface-secondary)] transition-colors"
                   >
                     {/* Thumbnail */}
-                    {meal.image ? (
+                    {mealImage ? (
                       <img 
-                        src={meal.image} 
+                        src={mealImage} 
                         alt={meal.name} 
                         className="w-14 h-14 rounded-xl object-cover flex-shrink-0"
                       />
@@ -706,7 +724,8 @@ function DayView({
   onDragStart,
   onDragOver,
   onDrop,
-  getMealItemNames
+  getMealItemNames,
+  getMealImage
 }: {
   date: Date;
   calendar: CalendarDay[];
@@ -719,6 +738,7 @@ function DayView({
   onDragOver: (e: DragEvent<HTMLDivElement>) => void;
   onDrop: (e: DragEvent<HTMLDivElement>, date: string, type: 'breakfast' | 'lunch' | 'dinner') => void;
   getMealItemNames: (meal: Meal) => string[];
+  getMealImage: (meal: Meal) => string | null;
 }) {
   const dateStr = date.toISOString().split('T')[0];
   const day = calendar.find(d => d.date === dateStr);
@@ -742,6 +762,7 @@ function DayView({
           const mealId = day?.[type];
           const meal = meals.find(m => m.id === mealId);
           const itemNames = meal ? getMealItemNames(meal) : [];
+          const mealImage = meal ? getMealImage(meal) : null;
           
           return (
             <div 
@@ -773,14 +794,19 @@ function DayView({
                   draggable
                   onDragStart={(e) => onDragStart(e, mealId!, dateStr, type)}
                   onClick={() => onMealClick(mealId)}
-                  className={`cursor-grab active:cursor-grabbing p-3 ${mealBgColors[type]} rounded-xl hover:opacity-80 transition-all`}
+                  className={`cursor-grab active:cursor-grabbing flex items-center gap-3 p-3 ${mealBgColors[type]} rounded-xl hover:opacity-80 transition-all`}
                 >
-                  <p className="font-medium text-[var(--foreground)]">{meal.name}</p>
-                  {itemNames.length > 0 && (
-                    <p className="text-sm text-[var(--text-muted)] mt-1">
-                      {itemNames.join(' + ')}
-                    </p>
+                  {mealImage && (
+                    <img src={mealImage} alt="" className="w-14 h-14 rounded-lg object-cover flex-shrink-0" />
                   )}
+                  <div className="min-w-0 flex-1">
+                    <p className="font-medium text-[var(--foreground)]">{meal.name}</p>
+                    {itemNames.length > 0 && (
+                      <p className="text-sm text-[var(--text-muted)] mt-1 truncate">
+                        {itemNames.join(' + ')}
+                      </p>
+                    )}
+                  </div>
                 </div>
               ) : (
                 <div className="p-3 border-2 border-dashed border-[var(--border)] rounded-xl text-center text-[var(--text-muted)]">
@@ -806,7 +832,8 @@ function WeekView({
   onDragStart,
   onDragOver,
   onDrop,
-  getMealItemNames
+  getMealItemNames,
+  getMealImage
 }: {
   calendar: CalendarDay[];
   meals: Meal[];
@@ -818,6 +845,7 @@ function WeekView({
   onDragOver: (e: DragEvent<HTMLDivElement>) => void;
   onDrop: (e: DragEvent<HTMLDivElement>, date: string, type: 'breakfast' | 'lunch' | 'dinner') => void;
   getMealItemNames: (meal: Meal) => string[];
+  getMealImage: (meal: Meal) => string | null;
 }) {
   const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
   const mealTypes: Array<'breakfast' | 'lunch' | 'dinner'> = ['breakfast', 'lunch', 'dinner'];
@@ -848,6 +876,7 @@ function WeekView({
                 {mealTypes.map((type) => {
                   const mealId = day[type];
                   const meal = meals.find(m => m.id === mealId);
+                  const mealImage = meal ? getMealImage(meal) : null;
                   
                   return (
                     <div 
@@ -864,7 +893,12 @@ function WeekView({
                           onClick={() => onMealClick(mealId)}
                           className={`flex-1 cursor-grab active:cursor-grabbing px-3 py-2 rounded-xl ${mealColors[type]} hover:opacity-80 transition-opacity flex items-center justify-between`}
                         >
-                          <span className="text-sm font-medium text-[var(--foreground)] truncate">{meal.name}</span>
+                          <div className="flex items-center gap-2 min-w-0 flex-1">
+                            {mealImage && (
+                              <img src={mealImage} alt="" className="w-8 h-8 rounded-lg object-cover flex-shrink-0" />
+                            )}
+                            <span className="text-sm font-medium text-[var(--foreground)] truncate">{meal.name}</span>
+                          </div>
                           <button
                             onClick={(e) => { e.stopPropagation(); onRemoveMeal(day.date, type); }}
                             className="text-red-500 hover:text-red-600 ml-2"
@@ -916,6 +950,7 @@ function WeekView({
                 {calendar.map((day) => {
                   const mealId = day[type];
                   const meal = meals.find(m => m.id === mealId);
+                  const mealImage = meal ? getMealImage(meal) : null;
                   const isToday = day.date === new Date().toISOString().split('T')[0];
                   return (
                     <td 
@@ -931,7 +966,12 @@ function WeekView({
                           onClick={() => onMealClick(mealId)}
                           className={`group relative cursor-grab active:cursor-grabbing px-2 py-2 rounded-xl ${mealColors[type]} hover:opacity-90 transition-opacity`}
                         >
-                          <p className="text-sm font-medium text-[var(--foreground)] truncate pr-4">{meal.name}</p>
+                          <div className="flex items-center gap-2">
+                            {mealImage && (
+                              <img src={mealImage} alt="" className="w-8 h-8 rounded-lg object-cover flex-shrink-0" />
+                            )}
+                            <p className="text-sm font-medium text-[var(--foreground)] truncate pr-4 flex-1">{meal.name}</p>
+                          </div>
                           <button
                             onClick={(e) => { e.stopPropagation(); onRemoveMeal(day.date, type); }}
                             className="absolute top-1 right-1 w-5 h-5 bg-red-500 text-white rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
@@ -964,16 +1004,20 @@ function WeekView({
 // Month View Component
 function MonthView({ 
   calendar, 
-  meals, 
+  meals,
+  mealItems,
   currentDate, 
   onMealClick, 
-  onAddMeal
+  onAddMeal,
+  getMealImage
 }: {
   calendar: CalendarDay[];
   meals: Meal[];
+  mealItems: MealItem[];
   currentDate: Date;
   onMealClick: (mealId: string | undefined) => void;
   onAddMeal: (date: string, type: 'breakfast' | 'lunch' | 'dinner') => void;
+  getMealImage: (meal: Meal) => string | null;
 }) {
   const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
   const firstDay = new Date(currentDate.getFullYear(), currentDate.getMonth(), 1);
@@ -1023,30 +1067,45 @@ function MonthView({
                   {date.getDate()}
                 </div>
                 <div className="space-y-1.5">
-                  {day?.breakfast && (
-                    <div
-                      onClick={() => onMealClick(day.breakfast)}
-                      className="text-xs p-1.5 bg-[var(--breakfast-bg)] rounded-lg cursor-pointer hover:opacity-80 truncate text-[var(--breakfast-text)]"
-                    >
-                      {meals.find(m => m.id === day.breakfast)?.name || 'Breakfast'}
-                    </div>
-                  )}
-                  {day?.lunch && (
-                    <div
-                      onClick={() => onMealClick(day.lunch)}
-                      className="text-xs p-1.5 bg-[var(--lunch-bg)] rounded-lg cursor-pointer hover:opacity-80 truncate text-[var(--lunch-text)]"
-                    >
-                      {meals.find(m => m.id === day.lunch)?.name || 'Lunch'}
-                    </div>
-                  )}
-                  {day?.dinner && (
-                    <div
-                      onClick={() => onMealClick(day.dinner)}
-                      className="text-xs p-1.5 bg-[var(--dinner-bg)] rounded-lg cursor-pointer hover:opacity-80 truncate text-[var(--dinner-text)]"
-                    >
-                      {meals.find(m => m.id === day.dinner)?.name || 'Dinner'}
-                    </div>
-                  )}
+                  {day?.breakfast && (() => {
+                    const meal = meals.find(m => m.id === day.breakfast);
+                    const image = meal ? getMealImage(meal) : null;
+                    return (
+                      <div
+                        onClick={() => onMealClick(day.breakfast)}
+                        className="flex items-center gap-1.5 text-xs p-1.5 bg-[var(--breakfast-bg)] rounded-lg cursor-pointer hover:opacity-80 text-[var(--breakfast-text)]"
+                      >
+                        {image && <img src={image} alt="" className="w-5 h-5 rounded object-cover flex-shrink-0" />}
+                        <span className="truncate">{meal?.name || 'Breakfast'}</span>
+                      </div>
+                    );
+                  })()}
+                  {day?.lunch && (() => {
+                    const meal = meals.find(m => m.id === day.lunch);
+                    const image = meal ? getMealImage(meal) : null;
+                    return (
+                      <div
+                        onClick={() => onMealClick(day.lunch)}
+                        className="flex items-center gap-1.5 text-xs p-1.5 bg-[var(--lunch-bg)] rounded-lg cursor-pointer hover:opacity-80 text-[var(--lunch-text)]"
+                      >
+                        {image && <img src={image} alt="" className="w-5 h-5 rounded object-cover flex-shrink-0" />}
+                        <span className="truncate">{meal?.name || 'Lunch'}</span>
+                      </div>
+                    );
+                  })()}
+                  {day?.dinner && (() => {
+                    const meal = meals.find(m => m.id === day.dinner);
+                    const image = meal ? getMealImage(meal) : null;
+                    return (
+                      <div
+                        onClick={() => onMealClick(day.dinner)}
+                        className="flex items-center gap-1.5 text-xs p-1.5 bg-[var(--dinner-bg)] rounded-lg cursor-pointer hover:opacity-80 text-[var(--dinner-text)]"
+                      >
+                        {image && <img src={image} alt="" className="w-5 h-5 rounded object-cover flex-shrink-0" />}
+                        <span className="truncate">{meal?.name || 'Dinner'}</span>
+                      </div>
+                    );
+                  })()}
                   {(!day?.breakfast || !day?.lunch || !day?.dinner) && (
                     <button
                       onClick={() => onAddMeal(dateStr, 'breakfast')}
