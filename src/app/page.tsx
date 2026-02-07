@@ -2,10 +2,10 @@
 
 import { useState, useEffect, useCallback, DragEvent } from 'react';
 import { useRouter } from 'next/navigation';
-import Link from 'next/link';
-import { mealService, calendarService } from '@/lib/database';
-import type { Meal, CalendarDay } from '@/lib/supabase';
-import AppBar from '@/components/AppBar';
+import { mealService, mealItemService, calendarService } from '@/lib/database';
+import type { Meal, MealItem, CalendarDay } from '@/lib/supabase';
+import Sidebar from '@/components/Sidebar';
+import BottomNav from '@/components/BottomNav';
 
 export const dynamic = 'force-dynamic';
 
@@ -16,13 +16,14 @@ export default function Home() {
   const [viewMode, setViewMode] = useState<ViewMode>('week');
   const [currentDate, setCurrentDate] = useState(new Date());
   const [meals, setMeals] = useState<Meal[]>([]);
+  const [mealItems, setMealItems] = useState<MealItem[]>([]);
   const [calendar, setCalendar] = useState<CalendarDay[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showMealModal, setShowMealModal] = useState(false);
   const [selectedDate, setSelectedDate] = useState<string>('');
   const [selectedMealType, setSelectedMealType] = useState<'breakfast' | 'lunch' | 'dinner'>('breakfast');
-  const [tomorrowReminders, setTomorrowReminders] = useState<{ meal: Meal; mealType: string }[]>([]);
+  const [tomorrowReminders, setTomorrowReminders] = useState<{ meal: Meal; mealType: string; prepNotes: string[] }[]>([]);
 
   // Load data from Supabase
   const loadData = useCallback(async () => {
@@ -30,9 +31,13 @@ export default function Home() {
       setLoading(true);
       setError(null);
 
-      // Load meals
-      const mealsData = await mealService.getAll();
+      // Load meals and meal items
+      const [mealsData, mealItemsData] = await Promise.all([
+        mealService.getAll(),
+        mealItemService.getAll()
+      ]);
       setMeals(mealsData);
+      setMealItems(mealItemsData);
 
       // Load calendar based on view mode
       const startDate = getStartDate();
@@ -59,7 +64,7 @@ export default function Home() {
       setCalendar(fullCalendar);
 
       // Load tomorrow's reminders
-      await loadTomorrowReminders(mealsData);
+      await loadTomorrowReminders(mealsData, mealItemsData);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load data');
       console.error('Error loading data:', err);
@@ -68,7 +73,7 @@ export default function Home() {
     }
   }, [currentDate, viewMode]);
 
-  const loadTomorrowReminders = async (mealsData: Meal[]) => {
+  const loadTomorrowReminders = async (mealsData: Meal[], mealItemsData: MealItem[]) => {
     try {
       const tomorrow = new Date();
       tomorrow.setDate(tomorrow.getDate() + 1);
@@ -77,13 +82,23 @@ export default function Home() {
       const tomorrowData = await calendarService.getByDate(tomorrowStr);
       
       if (tomorrowData) {
-        const reminders: { meal: Meal; mealType: string }[] = [];
+        const reminders: { meal: Meal; mealType: string; prepNotes: string[] }[] = [];
         
         const checkMeal = (mealId: string | undefined, mealType: string) => {
           if (mealId) {
             const meal = mealsData.find(m => m.id === mealId);
-            if (meal?.prep_notes) {
-              reminders.push({ meal, mealType });
+            if (meal) {
+              // Get prep notes from all meal items in this meal
+              const notes: string[] = [];
+              meal.meal_items.forEach(itemId => {
+                const item = mealItemsData.find(mi => mi.id === itemId);
+                if (item?.prep_notes) {
+                  notes.push(`${item.name}: ${item.prep_notes}`);
+                }
+              });
+              if (notes.length > 0) {
+                reminders.push({ meal, mealType, prepNotes: notes });
+              }
             }
           }
         };
@@ -221,11 +236,11 @@ export default function Home() {
   };
 
   const handleAutoSuggest = async () => {
-    // Simple auto-suggest: randomly assign available meals to empty slots
+    // Auto-suggest: randomly assign available meals to empty slots
     try {
-      const breakfastMeals = meals.filter(m => m.type === 'breakfast');
-      const lunchMeals = meals.filter(m => m.type === 'lunch');
-      const dinnerMeals = meals.filter(m => m.type === 'dinner');
+      const breakfastMeals = meals.filter(m => m.meal_type === 'breakfast' || m.meal_type === 'any');
+      const lunchMeals = meals.filter(m => m.meal_type === 'lunch' || m.meal_type === 'any');
+      const dinnerMeals = meals.filter(m => m.meal_type === 'dinner' || m.meal_type === 'any');
 
       for (const day of calendar) {
         if (!day.breakfast && breakfastMeals.length > 0) {
@@ -264,132 +279,155 @@ export default function Home() {
     setCurrentDate(new Date());
   };
 
+  const getMealItemNames = (meal: Meal): string[] => {
+    return meal.meal_items
+      .map(id => mealItems.find(mi => mi.id === id)?.name)
+      .filter((name): name is string => name !== undefined);
+  };
+
   return (
-    <div className="min-h-screen bg-[var(--background)]">
-      {/* Tomorrow's Meal Preparation Reminders */}
-      {tomorrowReminders.length > 0 && (
-        <div className="bg-gradient-to-r from-[var(--accent)] to-[var(--accent-dark)] text-white">
-          <div className="container mx-auto px-4 sm:px-6 py-3">
-            <div className="flex items-start gap-3">
-              <svg className="w-6 h-6 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
-              </svg>
-              <div className="flex-1">
-                <h3 className="font-semibold text-lg mb-2">🔔 Prepare for Tomorrow&apos;s Meals</h3>
-                <div className="space-y-2">
-                  {tomorrowReminders.map(({ meal, mealType }, index) => (
-                    <div key={index} className="bg-white/20 rounded-xl p-3 backdrop-blur-sm">
-                      <div className="flex items-center gap-2 mb-1">
-                        <span className="font-medium">{mealType}:</span>
-                        <span>{meal.name}</span>
+    <div className="min-h-screen bg-[var(--background)] flex">
+      {/* Desktop Sidebar */}
+      <Sidebar />
+
+      {/* Main Content */}
+      <div className="flex-1 flex flex-col min-h-screen pb-16 md:pb-0">
+        {/* Tomorrow's Meal Preparation Reminders */}
+        {tomorrowReminders.length > 0 && (
+          <div className="bg-gradient-to-r from-[var(--accent)] to-[var(--accent-dark)] text-white">
+            <div className="px-4 sm:px-6 py-3">
+              <div className="flex items-start gap-3">
+                <svg className="w-6 h-6 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
+                </svg>
+                <div className="flex-1">
+                  <h3 className="font-semibold text-lg mb-2">Prepare for Tomorrow&apos;s Meals</h3>
+                  <div className="space-y-2">
+                    {tomorrowReminders.map(({ meal, mealType, prepNotes }, index) => (
+                      <div key={index} className="bg-white/20 rounded-xl p-3 backdrop-blur-sm">
+                        <div className="flex items-center gap-2 mb-1">
+                          <span className="font-medium">{mealType}:</span>
+                          <span>{meal.name}</span>
+                        </div>
+                        <div className="text-sm text-white/90 space-y-1">
+                          {prepNotes.map((note, idx) => (
+                            <p key={idx} className="pl-4 border-l-2 border-white/50">{note}</p>
+                          ))}
+                        </div>
                       </div>
-                      <p className="text-sm text-white/90 pl-4 border-l-2 border-white/50">
-                        {meal.prep_notes}
-                      </p>
-                    </div>
+                    ))}
+                  </div>
+                </div>
+                <button
+                  onClick={() => setTomorrowReminders([])}
+                  className="text-white/80 hover:text-white p-1"
+                >
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Mobile Header - only show on mobile */}
+        <div className="md:hidden bg-[var(--surface)] border-b border-[var(--border)] px-4 py-3">
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-[var(--primary)] to-[var(--primary-dark)] flex items-center justify-center shadow-soft">
+              <svg className="w-5 h-5 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                <circle cx="12" cy="12" r="10" strokeWidth="1.5" />
+                <circle cx="12" cy="12" r="6" strokeWidth="1.5" />
+                <circle cx="7" cy="9" r="2" strokeWidth="1.5" />
+                <circle cx="17" cy="9" r="2" strokeWidth="1.5" />
+                <circle cx="7" cy="15" r="2" strokeWidth="1.5" />
+                <circle cx="17" cy="15" r="2" strokeWidth="1.5" />
+              </svg>
+            </div>
+            <span className="text-lg font-bold text-[var(--foreground)]">Meal Planner</span>
+          </div>
+        </div>
+
+        {/* Calendar Controls */}
+        <div className="bg-[var(--surface)] border-b border-[var(--border)]">
+          <div className="px-4 sm:px-6 py-3 sm:py-4">
+            <div className="flex flex-col sm:flex-row items-center justify-between gap-3 sm:gap-4">
+              {/* Left side - Date Navigation & Today */}
+              <div className="flex items-center gap-2 sm:gap-4 w-full sm:w-auto justify-between sm:justify-start">
+                <button
+                  onClick={() => navigateDate('prev')}
+                  className="p-2 hover:bg-[var(--surface-secondary)] rounded-xl transition-colors"
+                >
+                  <svg className="w-5 h-5 text-[var(--text-muted)]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+                  </svg>
+                </button>
+                <h2 className="text-base sm:text-lg font-semibold text-[var(--foreground)] text-center">
+                  {currentDate.toLocaleDateString('en-US', { 
+                    month: 'long', 
+                    year: 'numeric',
+                    ...(viewMode === 'day' && { day: 'numeric' })
+                  })}
+                </h2>
+                <button
+                  onClick={() => navigateDate('next')}
+                  className="p-2 hover:bg-[var(--surface-secondary)] rounded-xl transition-colors"
+                >
+                  <svg className="w-5 h-5 text-[var(--text-muted)]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                  </svg>
+                </button>
+                <button
+                  onClick={goToToday}
+                  className="px-3 py-1.5 text-sm bg-[var(--primary)] text-white rounded-xl hover:bg-[var(--primary-dark)] transition-colors"
+                >
+                  Today
+                </button>
+              </div>
+
+              {/* Right side - View Mode & Auto */}
+              <div className="flex items-center gap-3 w-full sm:w-auto justify-center sm:justify-end">
+                <div className="flex items-center bg-[var(--surface-secondary)] rounded-xl p-1">
+                  {(['day', 'week', 'month'] as ViewMode[]).map((mode) => (
+                    <button
+                      key={mode}
+                      onClick={() => setViewMode(mode)}
+                      className={`px-3 sm:px-4 py-1.5 sm:py-2 text-xs sm:text-sm font-medium rounded-lg transition-colors capitalize ${
+                        viewMode === mode
+                          ? 'bg-[var(--surface)] text-[var(--foreground)] shadow-soft'
+                          : 'text-[var(--text-muted)] hover:text-[var(--foreground)]'
+                      }`}
+                    >
+                      {mode}
+                    </button>
                   ))}
                 </div>
-              </div>
-              <button
-                onClick={() => setTomorrowReminders([])}
-                className="text-white/80 hover:text-white p-1"
-              >
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                </svg>
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* App Bar */}
-      <AppBar
-        rightContent={
-          <>
-            <button
-              onClick={goToToday}
-              className="px-3 sm:px-4 py-1.5 sm:py-2 text-xs sm:text-sm bg-[var(--primary)] text-white rounded-xl hover:bg-[var(--primary-dark)] transition-colors"
-            >
-              Today
-            </button>
-            <button
-              onClick={handleAutoSuggest}
-              className="hidden sm:block px-3 sm:px-4 py-1.5 sm:py-2 text-xs sm:text-sm bg-[var(--accent)] text-white rounded-xl hover:bg-[var(--accent-dark)] transition-colors"
-            >
-              Auto Suggest
-            </button>
-            <Link
-              href="/meals"
-              className="px-3 sm:px-4 py-1.5 sm:py-2 text-xs sm:text-sm bg-[var(--surface-secondary)] text-[var(--foreground)] rounded-xl hover:bg-[var(--border)] transition-colors text-center"
-            >
-              <span className="hidden sm:inline">Manage Meals</span>
-              <span className="sm:hidden">Meals</span>
-            </Link>
-          </>
-        }
-      />
-
-      {/* Calendar Controls */}
-      <div className="bg-[var(--surface)] border-b border-[var(--border)]">
-        <div className="container mx-auto px-4 sm:px-6 py-3 sm:py-4">
-          <div className="flex flex-col sm:flex-row items-center justify-between gap-3 sm:gap-0">
-            <div className="flex items-center space-x-2 sm:space-x-4 w-full sm:w-auto justify-between sm:justify-start">
-              <button
-                onClick={() => navigateDate('prev')}
-                className="p-2 hover:bg-[var(--surface-secondary)] rounded-xl transition-colors"
-              >
-                <svg className="w-5 h-5 text-[var(--text-muted)]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-                </svg>
-              </button>
-              <h2 className="text-base sm:text-lg font-semibold text-[var(--foreground)] text-center sm:text-left">
-                {currentDate.toLocaleDateString('en-US', { 
-                  month: 'long', 
-                  year: 'numeric',
-                  ...(viewMode === 'day' && { day: 'numeric' })
-                })}
-              </h2>
-              <button
-                onClick={() => navigateDate('next')}
-                className="p-2 hover:bg-[var(--surface-secondary)] rounded-xl transition-colors"
-              >
-                <svg className="w-5 h-5 text-[var(--text-muted)]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                </svg>
-              </button>
-            </div>
-            <div className="flex items-center space-x-1 sm:space-x-2 bg-[var(--surface-secondary)] rounded-xl p-1 w-full sm:w-auto justify-center">
-              {(['day', 'week', 'month'] as ViewMode[]).map((mode) => (
                 <button
-                  key={mode}
-                  onClick={() => setViewMode(mode)}
-                  className={`px-3 sm:px-4 py-1.5 sm:py-2 text-xs sm:text-sm font-medium rounded-lg transition-colors capitalize flex-1 sm:flex-none ${
-                    viewMode === mode
-                      ? 'bg-[var(--surface)] text-[var(--foreground)] shadow-soft'
-                      : 'text-[var(--text-muted)] hover:text-[var(--foreground)]'
-                  }`}
+                  onClick={handleAutoSuggest}
+                  className="hidden sm:flex items-center gap-2 px-3 py-1.5 text-sm bg-[var(--accent)] text-white rounded-xl hover:bg-[var(--accent-dark)] transition-colors"
                 >
-                  {mode}
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                  </svg>
+                  Auto
                 </button>
-              ))}
+              </div>
             </div>
           </div>
         </div>
-      </div>
 
-      {/* Error Message */}
-      {error && (
-        <div className="container mx-auto px-4 sm:px-6 py-4">
-          <div className="p-4 bg-red-50 border border-red-200 rounded-xl">
-            <p className="text-red-700">{error}</p>
+        {/* Error Message */}
+        {error && (
+          <div className="px-4 sm:px-6 py-4">
+            <div className="p-4 bg-red-50 border border-red-200 rounded-xl">
+              <p className="text-red-700">{error}</p>
+            </div>
           </div>
-        </div>
-      )}
+        )}
 
-      {/* Calendar View */}
-      <main className="container mx-auto px-2 sm:px-4 md:px-6 py-4 sm:py-6">
-        {loading ? (
+        {/* Calendar View */}
+        <main className="flex-1 px-2 sm:px-4 md:px-6 py-4 sm:py-6">
+          {loading ? (
           <div className="flex items-center justify-center py-12">
             <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[var(--primary)]"></div>
             <span className="ml-3 text-[var(--text-muted)]">Loading...</span>
@@ -401,24 +439,28 @@ export default function Home() {
                 date={currentDate}
                 calendar={calendar}
                 meals={meals}
+                mealItems={mealItems}
                 onMealClick={handleMealClick}
                 onAddMeal={handleAddMeal}
                 onRemoveMeal={handleRemoveMeal}
                 onDragStart={handleDragStart}
                 onDragOver={handleDragOver}
                 onDrop={handleDrop}
+                getMealItemNames={getMealItemNames}
               />
             )}
             {viewMode === 'week' && (
               <WeekView
                 calendar={calendar}
                 meals={meals}
+                mealItems={mealItems}
                 onMealClick={handleMealClick}
                 onAddMeal={handleAddMeal}
                 onRemoveMeal={handleRemoveMeal}
                 onDragStart={handleDragStart}
                 onDragOver={handleDragOver}
                 onDrop={handleDrop}
+                getMealItemNames={getMealItemNames}
               />
             )}
             {viewMode === 'month' && (
@@ -433,66 +475,81 @@ export default function Home() {
           </div>
         )}
       </main>
+      </div>
+
+      {/* Mobile Bottom Navigation */}
+      <BottomNav />
 
       {/* Meal Selection Modal */}
       {showMealModal && (
         <MealSelectionModal
           meals={meals}
+          mealItems={mealItems}
           mealType={selectedMealType}
           onSelectMeal={handleSelectMeal}
           onCreateNew={handleCreateNewMeal}
           onClose={() => setShowMealModal(false)}
+          getMealItemNames={getMealItemNames}
         />
       )}
     </div>
   );
 }
 
-// Meal Selection Modal Component with Search
+// Meal Selection Modal Component with Search and Sort
 function MealSelectionModal({
   meals,
+  mealItems,
   mealType,
   onSelectMeal,
   onCreateNew,
-  onClose
+  onClose,
+  getMealItemNames
 }: {
   meals: Meal[];
+  mealItems: MealItem[];
   mealType: 'breakfast' | 'lunch' | 'dinner';
   onSelectMeal: (mealId: string) => void;
   onCreateNew: () => void;
   onClose: () => void;
+  getMealItemNames: (meal: Meal) => string[];
 }) {
   const [searchQuery, setSearchQuery] = useState('');
-  const [showAllMeals, setShowAllMeals] = useState(false);
+  const [sortBy, setSortBy] = useState<'name' | 'type' | 'recent'>('name');
+  const [filterType, setFilterType] = useState<'all' | 'breakfast' | 'lunch' | 'dinner' | 'any'>('all');
 
-  // Filter meals based on search and type
-  const filteredMeals = meals.filter(m => {
-    const matchesSearch = m.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      m.ingredients.some(ing => ing.toLowerCase().includes(searchQuery.toLowerCase()));
-    const matchesType = showAllMeals || m.type === mealType;
-    return matchesSearch && matchesType;
-  });
-
-  // Group meals by type when showing all
-  const groupedMeals = showAllMeals ? {
-    breakfast: filteredMeals.filter(m => m.type === 'breakfast'),
-    lunch: filteredMeals.filter(m => m.type === 'lunch'),
-    dinner: filteredMeals.filter(m => m.type === 'dinner')
-  } : { [mealType]: filteredMeals };
-
-  const mealTypeColors = {
+  const mealTypeColors: Record<string, string> = {
     breakfast: 'bg-[var(--breakfast-bg)] text-[var(--breakfast-text)]',
     lunch: 'bg-[var(--lunch-bg)] text-[var(--lunch-text)]',
-    dinner: 'bg-[var(--dinner-bg)] text-[var(--dinner-text)]'
+    dinner: 'bg-[var(--dinner-bg)] text-[var(--dinner-text)]',
+    any: 'bg-purple-100 text-purple-700'
   };
+
+  // Filter and sort meals
+  const filteredMeals = meals
+    .filter(m => {
+      const itemNames = getMealItemNames(m);
+      const matchesSearch = searchQuery === '' || 
+        m.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        itemNames.some(name => name.toLowerCase().includes(searchQuery.toLowerCase()));
+      const matchesType = filterType === 'all' || m.meal_type === filterType;
+      return matchesSearch && matchesType;
+    })
+    .sort((a, b) => {
+      if (sortBy === 'name') return a.name.localeCompare(b.name);
+      if (sortBy === 'type') return a.meal_type.localeCompare(b.meal_type);
+      if (sortBy === 'recent') return b.created_at.localeCompare(a.created_at);
+      return 0;
+    });
 
   return (
     <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-      <div className="bg-[var(--surface)] rounded-2xl shadow-soft-lg max-w-2xl w-full max-h-[80vh] overflow-hidden flex flex-col">
-        <div className="p-6 border-b border-[var(--border)]">
+      <div className="bg-[var(--surface)] rounded-2xl shadow-soft-lg max-w-2xl w-full max-h-[85vh] overflow-hidden flex flex-col">
+        {/* Header */}
+        <div className="px-5 py-4 border-b border-[var(--border)]">
           <div className="flex items-center justify-between mb-4">
-            <h2 className="text-2xl font-semibold text-[var(--foreground)]">
-              Select {mealType.charAt(0).toUpperCase() + mealType.slice(1)} Meal
+            <h2 className="text-xl font-semibold text-[var(--foreground)]">
+              Select {mealType.charAt(0).toUpperCase() + mealType.slice(1)}
             </h2>
             <button
               onClick={onClose}
@@ -504,113 +561,133 @@ function MealSelectionModal({
             </button>
           </div>
 
-          {/* Search Input */}
-          <div className="relative mb-4">
-            <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-[var(--text-muted)]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-            </svg>
-            <input
-              type="text"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search meals by name or ingredient..."
-              className="w-full pl-10 pr-4 py-2.5 border border-[var(--border)] rounded-xl focus:ring-2 focus:ring-[var(--primary)] focus:border-transparent bg-[var(--surface-secondary)] text-[var(--foreground)] placeholder:text-[var(--text-muted)]"
-              autoFocus
-            />
-          </div>
+          {/* Search and Filters */}
+          <div className="flex flex-col sm:flex-row gap-3">
+            {/* Search Input */}
+            <div className="relative flex-1">
+              <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--text-muted)]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+              </svg>
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Search meals..."
+                className="w-full pl-10 pr-4 py-2 text-sm border border-[var(--border)] rounded-xl bg-[var(--surface-secondary)] text-[var(--foreground)] placeholder:text-[var(--text-muted)]"
+                autoFocus
+              />
+            </div>
 
-          {/* Toggle to show all meals */}
-          <label className="flex items-center gap-2 text-sm text-[var(--text-muted)]">
-            <input
-              type="checkbox"
-              checked={showAllMeals}
-              onChange={(e) => setShowAllMeals(e.target.checked)}
-              className="rounded border-[var(--border)] text-[var(--primary)] focus:ring-[var(--primary)]"
-            />
-            Show all meals (not just {mealType})
-          </label>
+            {/* Filter by Type */}
+            <select
+              value={filterType}
+              onChange={(e) => setFilterType(e.target.value as typeof filterType)}
+              className="px-3 py-2 text-sm border border-[var(--border)] rounded-xl bg-[var(--surface-secondary)] text-[var(--foreground)]"
+            >
+              <option value="all">All Types</option>
+              <option value="breakfast">Breakfast</option>
+              <option value="lunch">Lunch</option>
+              <option value="dinner">Dinner</option>
+              <option value="any">Any Time</option>
+            </select>
+
+            {/* Sort */}
+            <select
+              value={sortBy}
+              onChange={(e) => setSortBy(e.target.value as typeof sortBy)}
+              className="px-3 py-2 text-sm border border-[var(--border)] rounded-xl bg-[var(--surface-secondary)] text-[var(--foreground)]"
+            >
+              <option value="name">Sort: A-Z</option>
+              <option value="type">Sort: Type</option>
+              <option value="recent">Sort: Recent</option>
+            </select>
+          </div>
         </div>
 
-        <div className="flex-1 overflow-y-auto p-6">
+        {/* Meal List */}
+        <div className="flex-1 overflow-y-auto">
           {filteredMeals.length === 0 ? (
-            <div className="text-center py-8">
-              <p className="text-[var(--text-muted)] mb-4">
+            <div className="text-center py-12">
+              <svg className="w-12 h-12 mx-auto text-[var(--border)] mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
+              </svg>
+              <p className="text-[var(--text-muted)]">
                 {searchQuery 
                   ? `No meals found matching "${searchQuery}"`
-                  : `No ${mealType} meals available. Create one now!`}
+                  : 'No meals available'}
               </p>
             </div>
           ) : (
-            <div className="space-y-6">
-              {Object.entries(groupedMeals).map(([type, typeMeals]) => (
-                typeMeals.length > 0 && (
-                  <div key={type}>
-                    {showAllMeals && (
-                      <h3 className="text-sm font-semibold text-[var(--text-muted)] uppercase tracking-wider mb-3">
-                        {type}
-                      </h3>
+            <div className="divide-y divide-[var(--border)]">
+              {filteredMeals.map((meal) => {
+                const itemNames = getMealItemNames(meal);
+                return (
+                  <div
+                    key={meal.id}
+                    onClick={() => onSelectMeal(meal.id)}
+                    className="flex items-center gap-4 px-5 py-3 cursor-pointer hover:bg-[var(--surface-secondary)] transition-colors"
+                  >
+                    {/* Thumbnail */}
+                    {meal.image ? (
+                      <img 
+                        src={meal.image} 
+                        alt={meal.name} 
+                        className="w-14 h-14 rounded-xl object-cover flex-shrink-0"
+                      />
+                    ) : (
+                      <div className="w-14 h-14 rounded-xl bg-[var(--surface-secondary)] flex items-center justify-center flex-shrink-0">
+                        <svg className="w-6 h-6 text-[var(--border)]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                        </svg>
+                      </div>
                     )}
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      {typeMeals.map((meal) => (
-                        <div
-                          key={meal.id}
-                          onClick={() => onSelectMeal(meal.id)}
-                          className="p-4 border border-[var(--border)] rounded-xl cursor-pointer hover:bg-[var(--surface-secondary)] hover:border-[var(--primary-light)] transition-all"
-                        >
-                          <div className="flex items-start justify-between mb-2">
-                            <h3 className="font-semibold text-[var(--foreground)]">{meal.name}</h3>
-                            {showAllMeals && (
-                              <span className={`px-2 py-0.5 text-xs rounded-lg capitalize ${mealTypeColors[meal.type]}`}>
-                                {meal.type}
-                              </span>
-                            )}
-                          </div>
-                          <div className="flex flex-wrap gap-1">
-                            {meal.ingredients.slice(0, 3).map((ing, idx) => (
-                              <span
-                                key={idx}
-                                className="px-2 py-1 text-xs bg-[var(--surface-secondary)] text-[var(--text-muted)] rounded-lg"
-                              >
-                                {ing}
-                              </span>
-                            ))}
-                            {meal.ingredients.length > 3 && (
-                              <span className="px-2 py-1 text-xs text-[var(--text-muted)]">
-                                +{meal.ingredients.length - 3} more
-                              </span>
-                            )}
-                          </div>
-                          {meal.prep_notes && (
-                            <div className="mt-2 text-xs text-[var(--accent)] flex items-center gap-1">
-                              <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
-                              </svg>
-                              Has prep notes
-                            </div>
-                          )}
-                        </div>
-                      ))}
+
+                    {/* Info */}
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 mb-1">
+                        <h3 className="font-medium text-[var(--foreground)] truncate">{meal.name}</h3>
+                        <span className={`flex-shrink-0 w-2 h-2 rounded-full ${meal.is_veg ? 'bg-green-500' : 'bg-red-500'}`}></span>
+                      </div>
+                      <p className="text-sm text-[var(--text-muted)] truncate">
+                        {itemNames.length > 0 ? itemNames.join(', ') : 'No items'}
+                      </p>
                     </div>
+
+                    {/* Type Badge */}
+                    <span className={`flex-shrink-0 px-2 py-1 text-xs rounded-lg capitalize ${mealTypeColors[meal.meal_type]}`}>
+                      {meal.meal_type === 'any' ? 'Any' : meal.meal_type}
+                    </span>
+
+                    {/* Arrow */}
+                    <svg className="w-5 h-5 text-[var(--text-muted)] flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                    </svg>
                   </div>
-                )
-              ))}
+                );
+              })}
             </div>
           )}
         </div>
 
-        <div className="p-6 border-t border-[var(--border)] flex justify-end gap-3">
-          <button
-            onClick={onClose}
-            className="px-4 py-2 text-sm bg-[var(--surface-secondary)] text-[var(--foreground)] rounded-xl hover:bg-[var(--border)] transition-colors"
-          >
-            Cancel
-          </button>
-          <button
-            onClick={onCreateNew}
-            className="px-4 py-2 text-sm bg-[var(--primary)] text-white rounded-xl hover:bg-[var(--primary-dark)] transition-colors"
-          >
-            + Create New Meal
-          </button>
+        {/* Footer */}
+        <div className="px-5 py-4 border-t border-[var(--border)] flex items-center justify-between">
+          <span className="text-sm text-[var(--text-muted)]">
+            {filteredMeals.length} meal{filteredMeals.length !== 1 ? 's' : ''}
+          </span>
+          <div className="flex gap-3">
+            <button
+              onClick={onClose}
+              className="px-4 py-2 text-sm bg-[var(--surface-secondary)] text-[var(--foreground)] rounded-xl hover:bg-[var(--border)] transition-colors"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={onCreateNew}
+              className="px-4 py-2 text-sm bg-[var(--primary)] text-white rounded-xl hover:bg-[var(--primary-dark)] transition-colors"
+            >
+              + Create New
+            </button>
+          </div>
         </div>
       </div>
     </div>
@@ -621,23 +698,27 @@ function MealSelectionModal({
 function DayView({ 
   date, 
   calendar, 
-  meals, 
+  meals,
+  mealItems,
   onMealClick, 
   onAddMeal, 
   onRemoveMeal,
   onDragStart,
   onDragOver,
-  onDrop
+  onDrop,
+  getMealItemNames
 }: {
   date: Date;
   calendar: CalendarDay[];
   meals: Meal[];
+  mealItems: MealItem[];
   onMealClick: (mealId: string | undefined) => void;
   onAddMeal: (date: string, type: 'breakfast' | 'lunch' | 'dinner') => void;
   onRemoveMeal: (date: string, type: 'breakfast' | 'lunch' | 'dinner') => void;
   onDragStart: (e: DragEvent<HTMLDivElement>, mealId: string, date: string, type: 'breakfast' | 'lunch' | 'dinner') => void;
   onDragOver: (e: DragEvent<HTMLDivElement>) => void;
   onDrop: (e: DragEvent<HTMLDivElement>, date: string, type: 'breakfast' | 'lunch' | 'dinner') => void;
+  getMealItemNames: (meal: Meal) => string[];
 }) {
   const dateStr = date.toISOString().split('T')[0];
   const day = calendar.find(d => d.date === dateStr);
@@ -660,6 +741,7 @@ function DayView({
         {mealTypes.map((type) => {
           const mealId = day?.[type];
           const meal = meals.find(m => m.id === mealId);
+          const itemNames = meal ? getMealItemNames(meal) : [];
           
           return (
             <div 
@@ -694,12 +776,9 @@ function DayView({
                   className={`cursor-grab active:cursor-grabbing p-3 ${mealBgColors[type]} rounded-xl hover:opacity-80 transition-all`}
                 >
                   <p className="font-medium text-[var(--foreground)]">{meal.name}</p>
-                  {meal.prep_notes && (
-                    <p className="text-xs text-[var(--accent)] mt-1 flex items-center gap-1">
-                      <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
-                      </svg>
-                      {meal.prep_notes}
+                  {itemNames.length > 0 && (
+                    <p className="text-sm text-[var(--text-muted)] mt-1">
+                      {itemNames.join(' + ')}
                     </p>
                   )}
                 </div>
@@ -720,21 +799,25 @@ function DayView({
 function WeekView({ 
   calendar, 
   meals, 
+  mealItems,
   onMealClick, 
   onAddMeal, 
   onRemoveMeal,
   onDragStart,
   onDragOver,
-  onDrop
+  onDrop,
+  getMealItemNames
 }: {
   calendar: CalendarDay[];
   meals: Meal[];
+  mealItems: MealItem[];
   onMealClick: (mealId: string | undefined) => void;
   onAddMeal: (date: string, type: 'breakfast' | 'lunch' | 'dinner') => void;
   onRemoveMeal: (date: string, type: 'breakfast' | 'lunch' | 'dinner') => void;
   onDragStart: (e: DragEvent<HTMLDivElement>, mealId: string, date: string, type: 'breakfast' | 'lunch' | 'dinner') => void;
   onDragOver: (e: DragEvent<HTMLDivElement>) => void;
   onDrop: (e: DragEvent<HTMLDivElement>, date: string, type: 'breakfast' | 'lunch' | 'dinner') => void;
+  getMealItemNames: (meal: Meal) => string[];
 }) {
   const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
   const mealTypes: Array<'breakfast' | 'lunch' | 'dinner'> = ['breakfast', 'lunch', 'dinner'];
@@ -748,21 +831,20 @@ function WeekView({
   return (
     <>
       {/* Mobile View - Vertical Cards */}
-      <div className="block md:hidden space-y-4 p-4">
+      <div className="block md:hidden space-y-3 p-4">
         {calendar.map((day) => {
           const date = new Date(day.date);
           const dayName = days[date.getDay()];
           const dayNumber = date.getDate();
-          const monthName = date.toLocaleDateString('en-US', { month: 'short' });
           
           return (
-            <div key={day.date} className="border border-[var(--border)] rounded-xl p-4 bg-[var(--surface)]">
-              <div className="mb-4 pb-3 border-b border-[var(--border)]">
-                <div className="text-sm font-semibold text-[var(--text-muted)]">{dayName}</div>
-                <div className="text-lg font-bold text-[var(--foreground)]">{monthName} {dayNumber}</div>
+            <div key={day.date} className="border border-[var(--border)] rounded-xl p-3 bg-[var(--surface)]">
+              <div className="flex items-center justify-between mb-3 pb-2 border-b border-[var(--border)]">
+                <span className="text-sm font-medium text-[var(--text-muted)]">{dayName}</span>
+                <span className="text-base font-bold text-[var(--foreground)]">{dayNumber}</span>
               </div>
               
-              <div className="space-y-3">
+              <div className="space-y-2">
                 {mealTypes.map((type) => {
                   const mealId = day[type];
                   const meal = meals.find(m => m.id === mealId);
@@ -770,46 +852,34 @@ function WeekView({
                   return (
                     <div 
                       key={type} 
-                      className="border border-[var(--border)] rounded-xl p-3"
+                      className="flex items-center gap-3"
                       onDragOver={onDragOver}
                       onDrop={(e) => onDrop(e, day.date, type)}
                     >
-                      <div className="flex items-center justify-between mb-2">
-                        <span className="text-sm font-medium text-[var(--foreground)] capitalize">
-                          {mealLabels[type]}
-                        </span>
-                        {mealId && (
-                          <button
-                            onClick={() => onRemoveMeal(day.date, type)}
-                            className="text-xs text-red-500 hover:text-red-600"
-                          >
-                            Remove
-                          </button>
-                        )}
-                      </div>
+                      <span className="text-xs text-[var(--text-muted)] w-8">{mealLabels[type].slice(0, 1)}</span>
                       {meal ? (
                         <div
                           draggable
                           onDragStart={(e) => onDragStart(e, mealId!, day.date, type)}
                           onClick={() => onMealClick(mealId)}
-                          className={`cursor-grab active:cursor-grabbing p-2 rounded-xl ${mealColors[type]} hover:opacity-80 transition-opacity`}
+                          className={`flex-1 cursor-grab active:cursor-grabbing px-3 py-2 rounded-xl ${mealColors[type]} hover:opacity-80 transition-opacity flex items-center justify-between`}
                         >
-                          <p className="text-sm font-medium text-[var(--foreground)]">{meal.name}</p>
-                          {meal.prep_notes && (
-                            <p className="text-xs text-[var(--accent)] mt-1 flex items-center gap-1">
-                              <svg className="w-3 h-3 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
-                              </svg>
-                              <span className="truncate">{meal.prep_notes}</span>
-                            </p>
-                          )}
+                          <span className="text-sm font-medium text-[var(--foreground)] truncate">{meal.name}</span>
+                          <button
+                            onClick={(e) => { e.stopPropagation(); onRemoveMeal(day.date, type); }}
+                            className="text-red-500 hover:text-red-600 ml-2"
+                          >
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                            </svg>
+                          </button>
                         </div>
                       ) : (
                         <button
                           onClick={() => onAddMeal(day.date, type)}
-                          className="w-full p-2 text-sm text-[var(--text-muted)] hover:text-[var(--foreground)] border-2 border-dashed border-[var(--border)] rounded-xl hover:border-[var(--primary-light)] transition-colors"
+                          className="flex-1 px-3 py-2 text-sm text-[var(--text-muted)] border border-dashed border-[var(--border)] rounded-xl hover:border-[var(--primary-light)]"
                         >
-                          + Add {mealLabels[type]}
+                          + Add
                         </button>
                       )}
                     </div>
@@ -826,13 +896,14 @@ function WeekView({
         <table className="w-full">
           <thead>
             <tr>
-              <th className="p-4 text-left text-sm font-medium text-[var(--text-muted)] border-b border-[var(--border)]">Time</th>
+              <th className="px-3 py-3 text-left text-sm font-medium text-[var(--text-muted)] border-b border-[var(--border)]"></th>
               {calendar.map((day) => {
                 const date = new Date(day.date);
+                const isToday = day.date === new Date().toISOString().split('T')[0];
                 return (
-                  <th key={day.date} className="p-4 text-center text-sm font-medium text-[var(--text-muted)] border-b border-[var(--border)] min-w-[120px]">
-                    <div>{days[date.getDay()]}</div>
-                    <div className="text-lg font-semibold text-[var(--foreground)]">{date.getDate()}</div>
+                  <th key={day.date} className={`px-2 py-3 text-center text-sm font-medium border-b border-[var(--border)] min-w-[120px] ${isToday ? 'bg-[var(--primary-light)]/20' : ''}`}>
+                    <div className="text-[var(--text-muted)]">{days[date.getDay()]}</div>
+                    <div className={`text-lg font-semibold ${isToday ? 'text-[var(--primary)]' : 'text-[var(--foreground)]'}`}>{date.getDate()}</div>
                   </th>
                 );
               })}
@@ -841,14 +912,15 @@ function WeekView({
           <tbody>
             {mealTypes.map((type) => (
               <tr key={type} className="border-b border-[var(--border)]">
-                <td className="p-4 font-medium text-[var(--foreground)] capitalize">{type}</td>
+                <td className="px-3 py-2 text-sm font-medium text-[var(--text-muted)] capitalize">{mealLabels[type]}</td>
                 {calendar.map((day) => {
                   const mealId = day[type];
                   const meal = meals.find(m => m.id === mealId);
+                  const isToday = day.date === new Date().toISOString().split('T')[0];
                   return (
                     <td 
                       key={`${day.date}-${type}`} 
-                      className="p-2"
+                      className={`p-2 ${isToday ? 'bg-[var(--primary-light)]/10' : ''}`}
                       onDragOver={onDragOver}
                       onDrop={(e) => onDrop(e, day.date, type)}
                     >
@@ -857,31 +929,22 @@ function WeekView({
                           draggable
                           onDragStart={(e) => onDragStart(e, mealId!, day.date, type)}
                           onClick={() => onMealClick(mealId)}
-                          className={`cursor-grab active:cursor-grabbing p-2 rounded-xl ${mealColors[type]} hover:opacity-80 transition-opacity`}
+                          className={`group relative cursor-grab active:cursor-grabbing px-2 py-2 rounded-xl ${mealColors[type]} hover:opacity-90 transition-opacity`}
                         >
-                          <p className="text-sm font-medium text-[var(--foreground)] truncate">{meal.name}</p>
-                          {meal.prep_notes && (
-                            <p className="text-xs text-[var(--accent)] mt-1 flex items-center gap-1" title={meal.prep_notes}>
-                              <svg className="w-3 h-3 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
-                              </svg>
-                              <span className="truncate max-w-[80px]">{meal.prep_notes}</span>
-                            </p>
-                          )}
+                          <p className="text-sm font-medium text-[var(--foreground)] truncate pr-4">{meal.name}</p>
                           <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              onRemoveMeal(day.date, type);
-                            }}
-                            className="text-xs text-red-500 hover:text-red-600 mt-1"
+                            onClick={(e) => { e.stopPropagation(); onRemoveMeal(day.date, type); }}
+                            className="absolute top-1 right-1 w-5 h-5 bg-red-500 text-white rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
                           >
-                            Remove
+                            <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                            </svg>
                           </button>
                         </div>
                       ) : (
                         <button
                           onClick={() => onAddMeal(day.date, type)}
-                          className="w-full p-2 text-sm text-[var(--text-muted)] hover:text-[var(--foreground)] border-2 border-dashed border-[var(--border)] rounded-xl hover:border-[var(--primary-light)] transition-colors min-h-[60px]"
+                          className="w-full px-2 py-3 text-sm text-[var(--text-muted)] hover:text-[var(--foreground)] border border-dashed border-[var(--border)] rounded-xl hover:border-[var(--primary-light)] transition-colors"
                         >
                           + Add
                         </button>
@@ -934,15 +997,15 @@ function MonthView({
 
   return (
     <div className="p-6">
-      <div className="grid grid-cols-7 gap-2 mb-4">
+      <div className="grid grid-cols-7 gap-3 mb-4">
         {days.map(day => (
-          <div key={day} className="p-2 text-center text-sm font-medium text-[var(--text-muted)]">
+          <div key={day} className="p-2 text-center text-sm font-semibold text-[var(--text-muted)]">
             {day}
           </div>
         ))}
       </div>
       {weeks.map((week, weekIdx) => (
-        <div key={weekIdx} className="grid grid-cols-7 gap-2">
+        <div key={weekIdx} className="grid grid-cols-7 gap-3 mb-3">
           {week.map((dateStr) => {
             const date = new Date(dateStr);
             const day = calendar.find(d => d.date === dateStr);
@@ -952,18 +1015,18 @@ function MonthView({
             return (
               <div
                 key={dateStr}
-                className={`min-h-[100px] p-2 border border-[var(--border)] rounded-xl ${
+                className={`min-h-[110px] p-3 border border-[var(--border)] rounded-xl ${
                   !isCurrentMonth ? 'opacity-50' : ''
                 } ${isToday ? 'ring-2 ring-[var(--primary)]' : ''}`}
               >
-                <div className={`text-sm font-medium mb-1 ${isToday ? 'text-[var(--primary)]' : 'text-[var(--foreground)]'}`}>
+                <div className={`text-sm font-semibold mb-2 ${isToday ? 'text-[var(--primary)]' : 'text-[var(--foreground)]'}`}>
                   {date.getDate()}
                 </div>
-                <div className="space-y-1">
+                <div className="space-y-1.5">
                   {day?.breakfast && (
                     <div
                       onClick={() => onMealClick(day.breakfast)}
-                      className="text-xs p-1 bg-[var(--breakfast-bg)] rounded-lg cursor-pointer hover:opacity-80 truncate text-[var(--breakfast-text)]"
+                      className="text-xs p-1.5 bg-[var(--breakfast-bg)] rounded-lg cursor-pointer hover:opacity-80 truncate text-[var(--breakfast-text)]"
                     >
                       {meals.find(m => m.id === day.breakfast)?.name || 'Breakfast'}
                     </div>
@@ -971,7 +1034,7 @@ function MonthView({
                   {day?.lunch && (
                     <div
                       onClick={() => onMealClick(day.lunch)}
-                      className="text-xs p-1 bg-[var(--lunch-bg)] rounded-lg cursor-pointer hover:opacity-80 truncate text-[var(--lunch-text)]"
+                      className="text-xs p-1.5 bg-[var(--lunch-bg)] rounded-lg cursor-pointer hover:opacity-80 truncate text-[var(--lunch-text)]"
                     >
                       {meals.find(m => m.id === day.lunch)?.name || 'Lunch'}
                     </div>
@@ -979,7 +1042,7 @@ function MonthView({
                   {day?.dinner && (
                     <div
                       onClick={() => onMealClick(day.dinner)}
-                      className="text-xs p-1 bg-[var(--dinner-bg)] rounded-lg cursor-pointer hover:opacity-80 truncate text-[var(--dinner-text)]"
+                      className="text-xs p-1.5 bg-[var(--dinner-bg)] rounded-lg cursor-pointer hover:opacity-80 truncate text-[var(--dinner-text)]"
                     >
                       {meals.find(m => m.id === day.dinner)?.name || 'Dinner'}
                     </div>

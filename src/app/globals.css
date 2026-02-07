@@ -1,38 +1,38 @@
 @import "tailwindcss";
 
 :root {
-  /* Calming Light Theme */
-  --background: #faf9f7;
-  --foreground: #4a5568;
+  /* Fresh Grocery Theme - Light Mode Only */
+  --background: #f8faf8;
+  --foreground: #1f2937;
   
-  /* Primary - Soft Sage Green */
-  --primary: #7c9a82;
-  --primary-light: #a3c4a9;
-  --primary-dark: #5a7860;
+  /* Primary - Fresh Green */
+  --primary: #22c55e;
+  --primary-light: #86efac;
+  --primary-dark: #16a34a;
   
-  /* Accent - Warm Peach */
-  --accent: #e8a87c;
-  --accent-light: #f5d4bc;
-  --accent-dark: #d4896a;
+  /* Accent - Warm Coral/Orange */
+  --accent: #f97316;
+  --accent-light: #fed7aa;
+  --accent-dark: #ea580c;
   
-  /* Meal Type Colors - Soft Pastels */
-  --breakfast-bg: #fef3e2;
-  --breakfast-border: #f5d9a8;
-  --breakfast-text: #b5651d;
+  /* Meal Type Colors - Fresh & Vibrant */
+  --breakfast-bg: #fef9c3;
+  --breakfast-border: #fde047;
+  --breakfast-text: #a16207;
   
-  --lunch-bg: #e8f5e9;
-  --lunch-border: #a5d6a7;
-  --lunch-text: #2e7d32;
+  --lunch-bg: #dcfce7;
+  --lunch-border: #86efac;
+  --lunch-text: #15803d;
   
-  --dinner-bg: #e3f2fd;
-  --dinner-border: #90caf9;
-  --dinner-text: #1565c0;
+  --dinner-bg: #fce7f3;
+  --dinner-border: #f9a8d4;
+  --dinner-text: #be185d;
   
   /* Neutrals */
   --surface: #ffffff;
-  --surface-secondary: #f5f4f2;
-  --border: #e8e6e1;
-  --text-muted: #718096;
+  --surface-secondary: #f1f5f1;
+  --border: #e5e7eb;
+  --text-muted: #6b7280;
 }
 
 @theme inline {
@@ -50,51 +50,22 @@
   --color-surface: var(--surface);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    /* Calming Dark Theme - Soft and warm */
-    --background: #1a1d21;
-    --foreground: #e2e0dc;
-    
-    --primary: #8fb996;
-    --primary-light: #b5d4bb;
-    --primary-dark: #6a9670;
-    
-    --accent: #e8a87c;
-    --accent-light: #f5d4bc;
-    --accent-dark: #c4805e;
-    
-    --breakfast-bg: #2d2620;
-    --breakfast-border: #4a3d2e;
-    --breakfast-text: #e8a87c;
-    
-    --lunch-bg: #1e2a1f;
-    --lunch-border: #2e4a30;
-    --lunch-text: #8fb996;
-    
-    --dinner-bg: #1a2332;
-    --dinner-border: #2a3a52;
-    --dinner-text: #7eb8da;
-    
-    --surface: #242830;
-    --surface-secondary: #2d323c;
-    --border: #3a3f4a;
-    --text-muted: #9ca3af;
-  }
+html {
+  color-scheme: light only;
 }
 
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: 'Nunito', 'Segoe UI', system-ui, sans-serif;
+  font-family: 'Inter', 'SF Pro Display', system-ui, sans-serif;
 }
 
-/* Smooth transitions for theme changes */
+/* Smooth transitions */
 * {
   transition: background-color 0.2s ease, border-color 0.2s ease;
 }
 
-/* Custom scrollbar for a calmer look */
+/* Modern scrollbar */
 ::-webkit-scrollbar {
   width: 8px;
   height: 8px;
@@ -114,17 +85,31 @@ body {
   background: var(--text-muted);
 }
 
-/* Calming focus states */
+/* Fresh focus states */
 *:focus-visible {
   outline: 2px solid var(--primary);
   outline-offset: 2px;
 }
 
-/* Soft shadow utilities */
+/* Modern shadow utilities */
 .shadow-soft {
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04), 0 4px 16px rgba(0, 0, 0, 0.04);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05), 0 4px 12px rgba(0, 0, 0, 0.05);
 }
 
 .shadow-soft-lg {
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05), 0 8px 24px rgba(0, 0, 0, 0.05);
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.04), 0 10px 24px rgba(0, 0, 0, 0.08);
+}
+
+/* Gradient utilities for fresh look */
+.gradient-fresh {
+  background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dark) 100%);
+}
+
+.gradient-accent {
+  background: linear-gradient(135deg, var(--accent) 0%, var(--accent-dark) 100%);
+}
+
+/* Safe area padding for devices with notches */
+.safe-area-bottom {
+  padding-bottom: env(safe-area-inset-bottom, 0);
 }

@@ -1,4 +1,4 @@
-import { supabase, type Ingredient, type Meal, type CalendarDay } from './supabase'
+import { supabase, type Ingredient, type MealItem, type Meal, type CalendarDay } from './supabase'
 
 // Check if Supabase is configured
 const isSupabaseConfigured = () => {
@@ -8,21 +8,35 @@ const isSupabaseConfigured = () => {
   return true
 }
 
-// Ingredients operations
+// ============================================
+// INGREDIENTS SERVICE
+// Basic items: vegetables, pulses, flour, etc.
+// ============================================
 export const ingredientService = {
-  // Get all ingredients
   async getAll(): Promise<Ingredient[]> {
     isSupabaseConfigured()
     const { data, error } = await supabase!
       .from('ingredients')
       .select('*')
+      .order('category')
       .order('name')
     
     if (error) throw error
     return data || []
   },
 
-  // Add new ingredient
+  async getByCategory(category: string): Promise<Ingredient[]> {
+    isSupabaseConfigured()
+    const { data, error } = await supabase!
+      .from('ingredients')
+      .select('*')
+      .eq('category', category)
+      .order('name')
+    
+    if (error) throw error
+    return data || []
+  },
+
   async create(name: string, category: string): Promise<Ingredient> {
     isSupabaseConfigured()
     const { data, error } = await supabase!
@@ -35,18 +49,6 @@ export const ingredientService = {
     return data
   },
 
-  // Delete ingredient
-  async delete(id: string): Promise<void> {
-    isSupabaseConfigured()
-    const { error } = await supabase!
-      .from('ingredients')
-      .delete()
-      .eq('id', id)
-    
-    if (error) throw error
-  },
-
-  // Update ingredient
   async update(id: string, name: string, category: string): Promise<Ingredient> {
     isSupabaseConfigured()
     const { data, error } = await supabase!
@@ -58,12 +60,123 @@ export const ingredientService = {
     
     if (error) throw error
     return data
+  },
+
+  async delete(id: string): Promise<void> {
+    isSupabaseConfigured()
+    const { error } = await supabase!
+      .from('ingredients')
+      .delete()
+      .eq('id', id)
+    
+    if (error) throw error
   }
 }
 
-// Meals operations
+// ============================================
+// MEAL ITEMS SERVICE
+// Individual dishes made from ingredients
+// e.g., Vegetable Curry, Chapati, Fried Noodles
+// ============================================
+export const mealItemService = {
+  async getAll(): Promise<MealItem[]> {
+    isSupabaseConfigured()
+    const { data, error } = await supabase!
+      .from('meal_items')
+      .select('*')
+      .order('name')
+    
+    if (error) throw error
+    return data || []
+  },
+
+  async getById(id: string): Promise<MealItem | null> {
+    isSupabaseConfigured()
+    const { data, error } = await supabase!
+      .from('meal_items')
+      .select('*')
+      .eq('id', id)
+      .single()
+    
+    if (error && error.code !== 'PGRST116') throw error
+    return data
+  },
+
+  async create(
+    name: string,
+    description?: string,
+    ingredients: string[] = [],
+    isVeg: boolean = true,
+    image?: string,
+    prepTimeMinutes?: number,
+    prepNotes?: string
+  ): Promise<MealItem> {
+    isSupabaseConfigured()
+    const { data, error } = await supabase!
+      .from('meal_items')
+      .insert([{
+        name,
+        description,
+        ingredients,
+        is_veg: isVeg,
+        image,
+        prep_time_minutes: prepTimeMinutes,
+        prep_notes: prepNotes
+      }])
+      .select()
+      .single()
+    
+    if (error) throw error
+    return data
+  },
+
+  async update(
+    id: string,
+    name: string,
+    description?: string,
+    ingredients: string[] = [],
+    isVeg: boolean = true,
+    image?: string,
+    prepTimeMinutes?: number,
+    prepNotes?: string
+  ): Promise<MealItem> {
+    isSupabaseConfigured()
+    const { data, error } = await supabase!
+      .from('meal_items')
+      .update({
+        name,
+        description,
+        ingredients,
+        is_veg: isVeg,
+        image,
+        prep_time_minutes: prepTimeMinutes,
+        prep_notes: prepNotes
+      })
+      .eq('id', id)
+      .select()
+      .single()
+    
+    if (error) throw error
+    return data
+  },
+
+  async delete(id: string): Promise<void> {
+    isSupabaseConfigured()
+    const { error } = await supabase!
+      .from('meal_items')
+      .delete()
+      .eq('id', id)
+    
+    if (error) throw error
+  }
+}
+
+// ============================================
+// MEALS SERVICE
+// Combination of meal items for a complete meal
+// e.g., Chapati + Vegetable Curry
+// ============================================
 export const mealService = {
-  // Get all meals
   async getAll(): Promise<Meal[]> {
     isSupabaseConfigured()
     const { data, error } = await supabase!
@@ -75,25 +188,49 @@ export const mealService = {
     return data || []
   },
 
-  // Get meals by type
-  async getByType(type: 'breakfast' | 'lunch' | 'dinner'): Promise<Meal[]> {
+  async getById(id: string): Promise<Meal | null> {
     isSupabaseConfigured()
     const { data, error } = await supabase!
       .from('meals')
       .select('*')
-      .eq('type', type)
+      .eq('id', id)
+      .single()
+    
+    if (error && error.code !== 'PGRST116') throw error
+    return data
+  },
+
+  async getByType(mealType: 'breakfast' | 'lunch' | 'dinner' | 'any'): Promise<Meal[]> {
+    isSupabaseConfigured()
+    const { data, error } = await supabase!
+      .from('meals')
+      .select('*')
+      .or(`meal_type.eq.${mealType},meal_type.eq.any`)
       .order('name')
     
     if (error) throw error
     return data || []
   },
 
-  // Add new meal
-  async create(name: string, type: 'breakfast' | 'lunch' | 'dinner', ingredients: string[], isVeg: boolean = true, image?: string, prepNotes?: string): Promise<Meal> {
+  async create(
+    name: string,
+    mealItems: string[] = [],
+    mealType: 'breakfast' | 'lunch' | 'dinner' | 'any' = 'any',
+    isVeg: boolean = true,
+    description?: string,
+    image?: string
+  ): Promise<Meal> {
     isSupabaseConfigured()
     const { data, error } = await supabase!
       .from('meals')
-      .insert([{ name, type, ingredients, is_veg: isVeg, image, prep_notes: prepNotes }])
+      .insert([{
+        name,
+        description,
+        meal_items: mealItems,
+        meal_type: mealType,
+        is_veg: isVeg,
+        image
+      }])
       .select()
       .single()
     
@@ -101,7 +238,34 @@ export const mealService = {
     return data
   },
 
-  // Delete meal
+  async update(
+    id: string,
+    name: string,
+    mealItems: string[] = [],
+    mealType: 'breakfast' | 'lunch' | 'dinner' | 'any' = 'any',
+    isVeg: boolean = true,
+    description?: string,
+    image?: string
+  ): Promise<Meal> {
+    isSupabaseConfigured()
+    const { data, error } = await supabase!
+      .from('meals')
+      .update({
+        name,
+        description,
+        meal_items: mealItems,
+        meal_type: mealType,
+        is_veg: isVeg,
+        image
+      })
+      .eq('id', id)
+      .select()
+      .single()
+    
+    if (error) throw error
+    return data
+  },
+
   async delete(id: string): Promise<void> {
     isSupabaseConfigured()
     const { error } = await supabase!
@@ -110,26 +274,14 @@ export const mealService = {
       .eq('id', id)
     
     if (error) throw error
-  },
-
-  // Update meal
-  async update(id: string, name: string, type: 'breakfast' | 'lunch' | 'dinner', ingredients: string[], isVeg: boolean = true, image?: string, prepNotes?: string): Promise<Meal> {
-    isSupabaseConfigured()
-    const { data, error } = await supabase!
-      .from('meals')
-      .update({ name, type, ingredients, is_veg: isVeg, image, prep_notes: prepNotes })
-      .eq('id', id)
-      .select()
-      .single()
-    
-    if (error) throw error
-    return data
   }
 }
 
-// Calendar operations
+// ============================================
+// CALENDAR SERVICE
+// Schedule meals for breakfast, lunch, dinner
+// ============================================
 export const calendarService = {
-  // Get calendar for a specific week
   async getWeek(startDate: string, endDate: string): Promise<CalendarDay[]> {
     isSupabaseConfigured()
     const { data, error } = await supabase!
@@ -148,7 +300,6 @@ export const calendarService = {
     return data || []
   },
 
-  // Get calendar for a specific date
   async getByDate(date: string): Promise<CalendarDay | null> {
     isSupabaseConfigured()
     const { data, error } = await supabase!
@@ -162,11 +313,10 @@ export const calendarService = {
       .eq('date', date)
       .single()
     
-    if (error && error.code !== 'PGRST116') throw error // PGRST116 is "not found"
+    if (error && error.code !== 'PGRST116') throw error
     return data
   },
 
-  // Create or update calendar day
   async upsertDay(date: string, breakfast?: string, lunch?: string, dinner?: string): Promise<CalendarDay> {
     isSupabaseConfigured()
     const { data, error } = await supabase!
@@ -179,7 +329,6 @@ export const calendarService = {
     return data
   },
 
-  // Update specific meal for a date
   async updateMeal(date: string, mealType: 'breakfast' | 'lunch' | 'dinner', mealId: string | null): Promise<CalendarDay> {
     isSupabaseConfigured()
     
@@ -192,7 +341,7 @@ export const calendarService = {
     
     if (existing) {
       // Record exists, update it
-      const updateData: any = { [mealType]: mealId }
+      const updateData: Record<string, string | null> = { [mealType]: mealId }
       const { data, error } = await supabase!
         .from('calendar_days')
         .update(updateData)
@@ -228,7 +377,6 @@ export const calendarService = {
     }
   },
 
-  // Delete calendar day
   async deleteDay(date: string): Promise<void> {
     isSupabaseConfigured()
     const { error } = await supabase!

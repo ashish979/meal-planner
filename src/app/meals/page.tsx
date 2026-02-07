@@ -1,436 +1,598 @@
 'use client';
 
-import { useState, useEffect, Suspense } from 'react';
+import { useState, useEffect, useMemo, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { mealService, calendarService } from '@/lib/database';
-import { fetchMealData } from '@/lib/meal-api';
-import type { Meal } from '@/lib/supabase';
-import AppBar from '@/components/AppBar';
+import { mealService, mealItemService, calendarService } from '@/lib/database';
+import type { Meal, MealItem } from '@/lib/supabase';
+import Sidebar from '@/components/Sidebar';
+import BottomNav from '@/components/BottomNav';
 
 export const dynamic = 'force-dynamic';
+
+type ViewMode = 'grid' | 'list';
 
 function MealsPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [meals, setMeals] = useState<Meal[]>([]);
+  const [mealItems, setMealItems] = useState<MealItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [showCreateForm, setShowCreateForm] = useState(false);
-  const [creating, setCreating] = useState(false);
-  
-  // Form state
-  const [mealName, setMealName] = useState('');
-  const [mealType, setMealType] = useState<'breakfast' | 'lunch' | 'dinner'>('breakfast');
-  const [isVeg, setIsVeg] = useState(true);
-  const [ingredients, setIngredients] = useState<string[]>([]);
-  const [image, setImage] = useState<string>('');
-  const [prepNotes, setPrepNotes] = useState<string>('');
-  const [autoFetched, setAutoFetched] = useState(false);
+  const [saving, setSaving] = useState(false);
 
-  // Check if we need to add meal to calendar or edit
+  // View state
+  const [viewMode, setViewMode] = useState<ViewMode>('list');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [filterType, setFilterType] = useState<'all' | 'breakfast' | 'lunch' | 'dinner' | 'any'>('all');
+
+  // Dialog state
+  const [showDialog, setShowDialog] = useState(false);
+  const [editingMeal, setEditingMeal] = useState<Meal | null>(null);
+
+  // Form state
+  const [formName, setFormName] = useState('');
+  const [formDescription, setFormDescription] = useState('');
+  const [formMealItems, setFormMealItems] = useState<string[]>([]);
+  const [formMealType, setFormMealType] = useState<'breakfast' | 'lunch' | 'dinner' | 'any'>('any');
+  const [formImage, setFormImage] = useState('');
+
+  // Calendar params
   const dateParam = searchParams.get('date');
   const typeParam = searchParams.get('type') as 'breakfast' | 'lunch' | 'dinner' | null;
   const editParam = searchParams.get('edit');
-  const [editingMealId, setEditingMealId] = useState<string | null>(null);
 
   useEffect(() => {
-    loadMeals();
+    loadData();
+  }, []);
+
+  useEffect(() => {
     if (dateParam && typeParam) {
-      setShowCreateForm(true);
-      setMealType(typeParam);
-    } else if (editParam) {
-      setEditingMealId(editParam);
-      setShowCreateForm(true);
+      setFormMealType(typeParam);
+      setShowDialog(true);
     }
-  }, [dateParam, typeParam, editParam]);
+  }, [dateParam, typeParam]);
 
   useEffect(() => {
-    if (editingMealId && meals.length > 0) {
-      const mealToEdit = meals.find(m => m.id === editingMealId);
-      if (mealToEdit) {
-        setMealName(mealToEdit.name);
-        setMealType(mealToEdit.type);
-        setIsVeg(mealToEdit.is_veg ?? true);
-        setIngredients(mealToEdit.ingredients);
-        setImage(mealToEdit.image || '');
-        setPrepNotes(mealToEdit.prep_notes || '');
-        setAutoFetched(false);
-      }
+    if (editParam && meals.length > 0) {
+      const meal = meals.find(m => m.id === editParam);
+      if (meal) openEditDialog(meal);
     }
-  }, [editingMealId, meals]);
+  }, [editParam, meals]);
 
-  const loadMeals = async () => {
+  const loadData = async () => {
     try {
       setLoading(true);
-      const mealsData = await mealService.getAll();
+      const [mealsData, mealItemsData] = await Promise.all([
+        mealService.getAll(),
+        mealItemService.getAll()
+      ]);
       setMeals(mealsData);
+      setMealItems(mealItemsData);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load meals');
+      setError(err instanceof Error ? err.message : 'Failed to load data');
     } finally {
       setLoading(false);
     }
   };
 
-  const handleAutoFetch = async () => {
-    if (!mealName.trim()) return;
-    
-    try {
-      setCreating(true);
-      const mealData = await fetchMealData(mealName);
-      setMealType(mealData.type);
-      setIsVeg(mealData.isVeg);
-      setIngredients(mealData.ingredients);
-      setImage(mealData.image || '');
-      setAutoFetched(true);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to fetch meal data');
-    } finally {
-      setCreating(false);
+  // Filtered meals
+  const filteredMeals = useMemo(() => {
+    let items = [...meals];
+
+    if (searchQuery) {
+      const query = searchQuery.toLowerCase();
+      items = items.filter(meal =>
+        meal.name.toLowerCase().includes(query) ||
+        meal.description?.toLowerCase().includes(query)
+      );
+    }
+
+    if (filterType !== 'all') {
+      items = items.filter(meal => meal.meal_type === filterType);
+    }
+
+    return items.sort((a, b) => a.name.localeCompare(b.name));
+  }, [meals, searchQuery, filterType]);
+
+  const resetForm = () => {
+    setFormName('');
+    setFormDescription('');
+    setFormMealItems([]);
+    setFormMealType('any');
+    setFormImage('');
+    setEditingMeal(null);
+  };
+
+  const openCreateDialog = () => {
+    resetForm();
+    setShowDialog(true);
+  };
+
+  const openEditDialog = (meal: Meal) => {
+    setFormName(meal.name);
+    setFormDescription(meal.description || '');
+    setFormMealItems(meal.meal_items || []);
+    setFormMealType(meal.meal_type);
+    setFormImage(meal.image || '');
+    setEditingMeal(meal);
+    setShowDialog(true);
+  };
+
+  const closeDialog = () => {
+    setShowDialog(false);
+    resetForm();
+    if (editParam || dateParam) {
+      router.push('/meals');
     }
   };
 
-  const handleCreateMeal = async () => {
-    if (!mealName.trim() || ingredients.length === 0) {
-      setError('Please provide meal name and at least one ingredient');
+  // Get selected meal items with their details
+  const getSelectedItems = () => mealItems.filter(item => formMealItems.includes(item.id));
+
+  // Generate meal name from selected items
+  const generateMealName = (items: MealItem[]): string => {
+    if (items.length === 0) return '';
+    if (items.length === 1) return items[0].name;
+    if (items.length === 2) return `${items[0].name} with ${items[1].name}`;
+    return `${items[0].name} with ${items[1].name} & more`;
+  };
+
+  // Get images from selected meal items (first 2)
+  const getSelectedItemImages = (): string[] => {
+    return getSelectedItems()
+      .filter(item => item.image)
+      .slice(0, 2)
+      .map(item => item.image as string);
+  };
+
+  const handleSave = async () => {
+    if (formMealItems.length === 0) {
+      setError('Select at least one meal item');
       return;
     }
 
     try {
-      setCreating(true);
+      setSaving(true);
+      const selectedItems = getSelectedItems();
+      const isVeg = selectedItems.every(item => item.is_veg);
       
-      if (editingMealId) {
-        // Update existing meal
-        const updatedMeal = await mealService.update(editingMealId, mealName, mealType, ingredients, isVeg, image, prepNotes || undefined);
-        setMeals(meals.map(m => m.id === editingMealId ? updatedMeal : m));
-        setShowCreateForm(false);
-        resetForm();
-        setEditingMealId(null);
-        router.push(`/meals/${editingMealId}`);
+      // Use provided name or generate from meal items
+      const mealName = formName.trim() || generateMealName(selectedItems);
+
+      if (editingMeal) {
+        const updated = await mealService.update(
+          editingMeal.id,
+          mealName,
+          formMealItems,
+          formMealType,
+          isVeg,
+          formDescription || undefined,
+          formImage || undefined
+        );
+        setMeals(meals.map(m => m.id === editingMeal.id ? updated : m));
+        closeDialog();
       } else {
-        // Create new meal
-        const newMeal = await mealService.create(mealName, mealType, ingredients, isVeg, image, prepNotes || undefined);
+        const created = await mealService.create(
+          mealName,
+          formMealItems,
+          formMealType,
+          isVeg,
+          formDescription || undefined,
+          formImage || undefined
+        );
         
-        // If date and type are provided, add to calendar
         if (dateParam && typeParam) {
-          await calendarService.updateMeal(dateParam, typeParam, newMeal.id);
+          await calendarService.updateMeal(dateParam, typeParam, created.id);
           router.push('/');
         } else {
-          setMeals([...meals, newMeal]);
-          setShowCreateForm(false);
-          resetForm();
+          setMeals([...meals, created]);
+          closeDialog();
         }
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to save meal');
+      setError(err instanceof Error ? err.message : 'Failed to save');
     } finally {
-      setCreating(false);
+      setSaving(false);
     }
   };
 
-  const handleDeleteMeal = async (id: string) => {
-    if (!confirm('Are you sure you want to delete this meal?')) return;
-    
+  const handleDelete = async (id: string) => {
+    if (!confirm('Delete this meal?')) return;
     try {
       await mealService.delete(id);
       setMeals(meals.filter(m => m.id !== id));
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to delete meal');
+      setError(err instanceof Error ? err.message : 'Failed to delete');
     }
   };
 
-  const resetForm = () => {
-    setMealName('');
-    setMealType('breakfast');
-    setIsVeg(true);
-    setIngredients([]);
-    setImage('');
-    setPrepNotes('');
-    setAutoFetched(false);
-    setEditingMealId(null);
-  };
-
-  const addIngredient = (ingredient: string) => {
-    if (ingredient.trim() && !ingredients.includes(ingredient.trim())) {
-      setIngredients([...ingredients, ingredient.trim()]);
+  const toggleMealItem = (itemId: string) => {
+    if (formMealItems.includes(itemId)) {
+      setFormMealItems(formMealItems.filter(id => id !== itemId));
+    } else {
+      setFormMealItems([...formMealItems, itemId]);
     }
   };
 
-  const removeIngredient = (index: number) => {
-    setIngredients(ingredients.filter((_, i) => i !== index));
+  const getMealItemName = (id: string): string => {
+    return mealItems.find(mi => mi.id === id)?.name || id;
+  };
+
+  const mealTypeColors: Record<string, string> = {
+    breakfast: 'bg-yellow-100 text-yellow-700',
+    lunch: 'bg-green-100 text-green-700',
+    dinner: 'bg-pink-100 text-pink-700',
+    any: 'bg-purple-100 text-purple-700'
   };
 
   return (
-    <div className="min-h-screen bg-[var(--background)]">
-      {/* App Bar */}
-      <AppBar
-        showBackButton
-        backHref="/"
-        rightContent={
-          <button
-            onClick={() => setShowCreateForm(!showCreateForm)}
-            className="px-4 py-2 text-sm bg-[var(--primary)] text-white rounded-xl hover:bg-[var(--primary-dark)] transition-colors"
-          >
-            {showCreateForm ? 'Cancel' : '+ New Meal'}
-          </button>
-        }
-      />
+    <div className="min-h-screen bg-[var(--background)] flex">
+      {/* Desktop Sidebar */}
+      <Sidebar />
 
-      <main className="container mx-auto px-4 sm:px-6 py-6">
-        {/* Error Message */}
+      {/* Main Content */}
+      <div className="flex-1 flex flex-col min-h-screen pb-16 md:pb-0">
+        {/* Header */}
+        <div className="bg-[var(--surface)] border-b border-[var(--border)] px-4 sm:px-6 py-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <h1 className="text-2xl font-bold text-[var(--foreground)]">Meals</h1>
+              <p className="text-sm text-[var(--text-muted)]">{filteredMeals.length} meals</p>
+            </div>
+            <button
+              onClick={openCreateDialog}
+              className="px-4 py-2 text-sm bg-[var(--primary)] text-white rounded-xl hover:bg-[var(--primary-dark)] transition-colors"
+            >
+              + New Meal
+            </button>
+          </div>
+        </div>
+
+        <main className="flex-1 px-4 sm:px-6 py-6">
+
+        {/* Error */}
         {error && (
-          <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-xl">
+          <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-xl">
             <div className="flex items-center justify-between">
               <p className="text-red-700">{error}</p>
-              <button onClick={() => setError(null)} className="text-red-500 hover:text-red-600">✕</button>
+              <button onClick={() => setError(null)} className="text-red-500">✕</button>
             </div>
           </div>
         )}
 
-        {/* Create Meal Form */}
-        {showCreateForm && (
-          <div className="mb-6 bg-[var(--surface)] rounded-2xl shadow-soft-lg p-6">
-            <h2 className="text-xl font-semibold text-[var(--foreground)] mb-4">
-              {editingMealId ? 'Edit Meal' : 'Create New Meal'}
-            </h2>
-            
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-[var(--foreground)] mb-2">
-                  Meal Name
-                </label>
-                <div className="flex gap-2">
-                  <input
-                    type="text"
-                    value={mealName}
-                    onChange={(e) => setMealName(e.target.value)}
-                    placeholder="e.g., Grilled Chicken Salad"
-                    className="flex-1 px-4 py-2.5 border border-[var(--border)] rounded-xl focus:ring-2 focus:ring-[var(--primary)] focus:border-transparent bg-[var(--surface-secondary)] text-[var(--foreground)] placeholder:text-[var(--text-muted)]"
-                  />
-                  <button
-                    onClick={handleAutoFetch}
-                    disabled={!mealName.trim() || creating}
-                    className="px-4 py-2 bg-[var(--accent)] text-white rounded-xl hover:bg-[var(--accent-dark)] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    {creating ? 'Fetching...' : 'Auto Fetch'}
-                  </button>
-                </div>
-              </div>
+        {/* Toolbar */}
+        <div className="bg-[var(--surface)] rounded-xl border border-[var(--border)] p-4 mb-6">
+          <div className="flex flex-wrap items-center gap-3">
+            {/* Search */}
+            <div className="relative flex-1 min-w-[200px]">
+              <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--text-muted)]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+              </svg>
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Search meals..."
+                className="w-full pl-10 pr-4 py-2 text-sm border border-[var(--border)] rounded-xl bg-[var(--surface-secondary)] text-[var(--foreground)]"
+              />
+            </div>
 
-              {autoFetched && (
-                <div className="p-4 bg-[var(--lunch-bg)] border border-[var(--lunch-border)] rounded-xl">
-                  <p className="text-sm text-[var(--lunch-text)]">
-                    ✓ Auto-fetched meal data. You can edit the details below.
-                  </p>
-                </div>
-              )}
+            {/* Filter */}
+            <select
+              value={filterType}
+              onChange={(e) => setFilterType(e.target.value as typeof filterType)}
+              className="px-3 py-2 text-sm border border-[var(--border)] rounded-xl bg-[var(--surface-secondary)] text-[var(--foreground)]"
+            >
+              <option value="all">All Types</option>
+              <option value="breakfast">Breakfast</option>
+              <option value="lunch">Lunch</option>
+              <option value="dinner">Dinner</option>
+              <option value="any">Any Time</option>
+            </select>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-[var(--foreground)] mb-2">
-                    Meal Type
-                  </label>
-                  <select
-                    value={mealType}
-                    onChange={(e) => setMealType(e.target.value as 'breakfast' | 'lunch' | 'dinner')}
-                    className="w-full px-4 py-2.5 border border-[var(--border)] rounded-xl focus:ring-2 focus:ring-[var(--primary)] focus:border-transparent bg-[var(--surface-secondary)] text-[var(--foreground)]"
-                  >
-                    <option value="breakfast">Breakfast</option>
-                    <option value="lunch">Lunch</option>
-                    <option value="dinner">Dinner</option>
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-[var(--foreground)] mb-2">
-                    Category
-                  </label>
-                  <div className="flex gap-4">
-                    <label className="flex items-center">
-                      <input
-                        type="radio"
-                        checked={isVeg}
-                        onChange={() => setIsVeg(true)}
-                        className="mr-2 text-[var(--primary)] focus:ring-[var(--primary)]"
-                      />
-                      <span className="text-[var(--foreground)]">Vegetarian</span>
-                    </label>
-                    <label className="flex items-center">
-                      <input
-                        type="radio"
-                        checked={!isVeg}
-                        onChange={() => setIsVeg(false)}
-                        className="mr-2 text-[var(--primary)] focus:ring-[var(--primary)]"
-                      />
-                      <span className="text-[var(--foreground)]">Non-Vegetarian</span>
-                    </label>
-                  </div>
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-[var(--foreground)] mb-2">
-                  Ingredients
-                </label>
-                <div className="flex gap-2 mb-2">
-                  <input
-                    type="text"
-                    placeholder="Add ingredient"
-                    onKeyPress={(e) => {
-                      if (e.key === 'Enter') {
-                        addIngredient(e.currentTarget.value);
-                        e.currentTarget.value = '';
-                      }
-                    }}
-                    className="flex-1 px-4 py-2.5 border border-[var(--border)] rounded-xl focus:ring-2 focus:ring-[var(--primary)] focus:border-transparent bg-[var(--surface-secondary)] text-[var(--foreground)] placeholder:text-[var(--text-muted)]"
-                  />
-                </div>
-                <div className="flex flex-wrap gap-2">
-                  {ingredients.map((ing, index) => (
-                    <span
-                      key={index}
-                      className="inline-flex items-center px-3 py-1 bg-[var(--primary-light)]/30 text-[var(--primary-dark)] rounded-full text-sm"
-                    >
-                      {ing}
-                      <button
-                        onClick={() => removeIngredient(index)}
-                        className="ml-2 text-[var(--primary)] hover:text-[var(--primary-dark)]"
-                      >
-                        ×
-                      </button>
-                    </span>
-                  ))}
-                </div>
-              </div>
-
-              {image && (
-                <div>
-                  <label className="block text-sm font-medium text-[var(--foreground)] mb-2">
-                    Meal Image
-                  </label>
-                  <div className="flex items-center gap-4">
-                    <img src={image} alt={mealName} className="w-32 h-32 object-cover rounded-xl" />
-                    <input
-                      type="text"
-                      value={image}
-                      onChange={(e) => setImage(e.target.value)}
-                      placeholder="Image URL"
-                      className="flex-1 px-4 py-2.5 border border-[var(--border)] rounded-xl focus:ring-2 focus:ring-[var(--primary)] focus:border-transparent bg-[var(--surface-secondary)] text-[var(--foreground)]"
-                    />
-                  </div>
-                </div>
-              )}
-
-              {/* Prep Notes Section */}
-              <div>
-                <label className="block text-sm font-medium text-[var(--foreground)] mb-2">
-                  <span className="flex items-center gap-2">
-                    <svg className="w-4 h-4 text-[var(--accent)]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
-                    </svg>
-                    Preparation Notes (Optional)
-                  </span>
-                </label>
-                <textarea
-                  value={prepNotes}
-                  onChange={(e) => setPrepNotes(e.target.value)}
-                  placeholder="Add notes for meal preparation (e.g., 'Marinate chicken overnight', 'Soak beans the day before'). These will appear as reminders when this meal is scheduled for tomorrow."
-                  rows={3}
-                  className="w-full px-4 py-2.5 border border-[var(--border)] rounded-xl focus:ring-2 focus:ring-[var(--primary)] focus:border-transparent bg-[var(--surface-secondary)] text-[var(--foreground)] placeholder:text-[var(--text-muted)] resize-none"
-                />
-                <p className="mt-1 text-xs text-[var(--text-muted)]">
-                  💡 These notes will appear as a reminder banner when this meal is scheduled for tomorrow.
-                </p>
-              </div>
-
+            {/* View Toggle */}
+            <div className="flex border border-[var(--border)] rounded-xl overflow-hidden">
               <button
-                onClick={handleCreateMeal}
-                disabled={creating || !mealName.trim()}
-                className="w-full px-6 py-3 bg-[var(--primary)] text-white rounded-xl hover:bg-[var(--primary-dark)] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                onClick={() => setViewMode('grid')}
+                className={`p-2 ${viewMode === 'grid' ? 'bg-[var(--primary)] text-white' : 'bg-[var(--surface-secondary)] text-[var(--text-muted)]'}`}
               >
-                {creating 
-                  ? (editingMealId ? 'Updating...' : 'Creating...') 
-                  : editingMealId 
-                    ? 'Update Meal' 
-                    : dateParam 
-                      ? 'Create & Add to Calendar' 
-                      : 'Create Meal'}
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" />
+                </svg>
+              </button>
+              <button
+                onClick={() => setViewMode('list')}
+                className={`p-2 ${viewMode === 'list' ? 'bg-[var(--primary)] text-white' : 'bg-[var(--surface-secondary)] text-[var(--text-muted)]'}`}
+              >
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
+                </svg>
               </button>
             </div>
           </div>
-        )}
+        </div>
 
-        {/* Meals List */}
+        {/* Content */}
         {loading ? (
           <div className="flex items-center justify-center py-12">
             <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[var(--primary)]"></div>
-            <span className="ml-3 text-[var(--text-muted)]">Loading...</span>
+          </div>
+        ) : viewMode === 'grid' ? (
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
+            {filteredMeals.map((meal) => (
+              <div
+                key={meal.id}
+                onClick={() => openEditDialog(meal)}
+                className="bg-[var(--surface)] rounded-xl border border-[var(--border)] overflow-hidden cursor-pointer hover:border-[var(--primary-light)] hover:shadow-soft transition-all"
+              >
+                {meal.image ? (
+                  <img src={meal.image} alt={meal.name} className="w-full h-32 object-cover" />
+                ) : (
+                  <div className="w-full h-32 bg-[var(--surface-secondary)] flex items-center justify-center">
+                    <svg className="w-10 h-10 text-[var(--border)]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                    </svg>
+                  </div>
+                )}
+                <div className="p-3">
+                  <h3 className="font-medium text-[var(--foreground)] truncate">{meal.name}</h3>
+                  <div className="flex items-center gap-2 mt-2">
+                    <span className={`px-2 py-0.5 text-xs rounded-lg ${mealTypeColors[meal.meal_type]}`}>
+                      {meal.meal_type === 'any' ? 'Any' : meal.meal_type}
+                    </span>
+                    <span className={`w-2.5 h-2.5 rounded-full ${meal.is_veg ? 'bg-green-500' : 'bg-red-500'}`}></span>
+                  </div>
+                  <p className="text-sm text-[var(--text-muted)] mt-2">{meal.meal_items.length} items</p>
+                </div>
+              </div>
+            ))}
           </div>
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {meals.map((meal) => {
-              const mealTypeColors = {
-                breakfast: 'bg-[var(--breakfast-bg)] text-[var(--breakfast-text)]',
-                lunch: 'bg-[var(--lunch-bg)] text-[var(--lunch-text)]',
-                dinner: 'bg-[var(--dinner-bg)] text-[var(--dinner-text)]'
-              };
-              return (
-                <div
-                  key={meal.id}
-                  className="bg-[var(--surface)] rounded-2xl shadow-soft overflow-hidden cursor-pointer hover:shadow-soft-lg transition-all border border-[var(--border)] hover:border-[var(--primary-light)]"
-                  onClick={() => router.push(`/meals/${meal.id}`)}
-                >
-                  <div className="p-6">
-                    <div className="flex items-start justify-between mb-4">
-                      <div>
-                        <h3 className="text-lg font-semibold text-[var(--foreground)]">{meal.name}</h3>
-                        <div className="flex items-center gap-2 mt-1">
-                          <span className={`px-2 py-1 text-xs font-medium rounded-lg capitalize ${mealTypeColors[meal.type]}`}>
-                            {meal.type}
-                          </span>
+          <div className="bg-[var(--surface)] rounded-xl border border-[var(--border)] overflow-hidden">
+            <table className="w-full">
+              <thead className="bg-[var(--surface-secondary)]">
+                <tr>
+                  <th className="text-left px-4 py-3 font-medium text-[var(--text-muted)]">Name</th>
+                  <th className="text-left px-4 py-3 font-medium text-[var(--text-muted)] hidden sm:table-cell">Type</th>
+                  <th className="text-left px-4 py-3 font-medium text-[var(--text-muted)] hidden md:table-cell">Items</th>
+                  <th className="text-right px-4 py-3 font-medium text-[var(--text-muted)]">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-[var(--border)]">
+                {filteredMeals.map((meal) => (
+                  <tr key={meal.id} className="hover:bg-[var(--surface-secondary)]">
+                    <td className="px-4 py-3">
+                      <div className="flex items-center gap-3">
+                        {meal.image ? (
+                          <img src={meal.image} alt="" className="w-10 h-10 rounded-lg object-cover" />
+                        ) : (
+                          <div className="w-10 h-10 rounded-lg bg-[var(--surface-secondary)] flex items-center justify-center">
+                            <span className="text-sm text-[var(--text-muted)]">{meal.name[0]}</span>
+                          </div>
+                        )}
+                        <div>
+                          <span className="font-medium text-[var(--foreground)]">{meal.name}</span>
+                          <span className={`ml-2 w-2.5 h-2.5 inline-block rounded-full ${meal.is_veg ? 'bg-green-500' : 'bg-red-500'}`}></span>
                         </div>
                       </div>
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleDeleteMeal(meal.id);
-                        }}
-                        className="text-red-500 hover:text-red-600 text-sm"
-                      >
-                        Delete
-                      </button>
-                    </div>
-                    
-                    <div className="mb-4">
-                      <p className="text-sm font-medium text-[var(--text-muted)] mb-2">Ingredients:</p>
-                      <div className="flex flex-wrap gap-1">
-                        {meal.ingredients.slice(0, 5).map((ingId, index) => (
-                          <span
-                            key={index}
-                            className="px-2 py-1 text-xs bg-[var(--surface-secondary)] text-[var(--text-muted)] rounded-lg"
-                          >
-                            {ingId}
-                          </span>
-                        ))}
-                        {meal.ingredients.length > 5 && (
-                          <span className="px-2 py-1 text-xs text-[var(--text-muted)]">
-                            +{meal.ingredients.length - 5} more
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
+                    </td>
+                    <td className="px-4 py-3 hidden sm:table-cell">
+                      <span className={`px-2 py-1 text-xs rounded-lg ${mealTypeColors[meal.meal_type]}`}>
+                        {meal.meal_type === 'any' ? 'Any' : meal.meal_type}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 text-[var(--text-muted)] hidden md:table-cell">
+                      {meal.meal_items.slice(0, 2).map(id => getMealItemName(id)).join(', ')}
+                      {meal.meal_items.length > 2 && ` +${meal.meal_items.length - 2}`}
+                    </td>
+                    <td className="px-4 py-3 text-right">
+                      <button onClick={() => openEditDialog(meal)} className="text-[var(--primary)] hover:text-[var(--primary-dark)] mr-3">Edit</button>
+                      <button onClick={() => handleDelete(meal.id)} className="text-red-500 hover:text-red-600">Delete</button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            {filteredMeals.length === 0 && (
+              <div className="text-center py-12 text-[var(--text-muted)]">No meals found</div>
+            )}
           </div>
         )}
 
         {!loading && meals.length === 0 && (
           <div className="text-center py-12">
-            <p className="text-[var(--text-muted)]">No meals yet. Create your first meal!</p>
+            <p className="text-[var(--text-muted)] mb-4">No meals yet</p>
+            <button onClick={openCreateDialog} className="px-4 py-2 bg-[var(--primary)] text-white rounded-xl hover:bg-[var(--primary-dark)]">
+              + Create First Meal
+            </button>
           </div>
         )}
-      </main>
+        </main>
+      </div>
+
+      {/* Mobile Bottom Navigation */}
+      <BottomNav />
+
+      {/* Dialog */}
+      {showDialog && (
+        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-[var(--surface)] rounded-2xl shadow-soft-lg w-full max-w-lg max-h-[90vh] overflow-hidden flex flex-col">
+            {/* Header */}
+            <div className="flex items-center justify-between px-5 py-4 border-b border-[var(--border)]">
+              <h2 className="text-xl font-semibold text-[var(--foreground)]">
+                {editingMeal ? 'Edit Meal' : 'New Meal'}
+              </h2>
+              <button onClick={closeDialog} className="text-[var(--text-muted)] hover:text-[var(--foreground)]">
+                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+
+            {/* Body */}
+            <div className="flex-1 overflow-y-auto p-5 space-y-4">
+              {/* Meal Items Selection - moved to top */}
+              <div>
+                <label className="block text-sm font-medium text-[var(--foreground)] mb-1">
+                  Select Meal Items * ({formMealItems.length} selected)
+                </label>
+                {mealItems.length === 0 ? (
+                  <div className="p-3 border-2 border-dashed border-[var(--border)] rounded-lg text-center text-sm">
+                    <p className="text-[var(--text-muted)]">No meal items available</p>
+                    <button
+                      onClick={() => { closeDialog(); router.push('/meal-items'); }}
+                      className="text-[var(--primary)] text-sm mt-1"
+                    >
+                      Create Meal Items →
+                    </button>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-2 gap-2 max-h-40 overflow-y-auto p-1">
+                    {mealItems.map((item) => (
+                      <button
+                        key={item.id}
+                        type="button"
+                        onClick={() => toggleMealItem(item.id)}
+                        className={`p-2 text-left rounded-lg border text-sm transition-all ${
+                          formMealItems.includes(item.id)
+                            ? 'border-[var(--primary)] bg-[var(--primary-light)]/20'
+                            : 'border-[var(--border)] bg-[var(--surface-secondary)]'
+                        }`}
+                      >
+                        <div className="flex items-center gap-2">
+                          {item.image ? (
+                            <img src={item.image} alt="" className="w-8 h-8 rounded object-cover flex-shrink-0" />
+                          ) : (
+                            <div className="w-8 h-8 rounded bg-[var(--border)] flex items-center justify-center flex-shrink-0">
+                              <span className="text-xs text-[var(--text-muted)]">{item.name[0]}</span>
+                            </div>
+                          )}
+                          <div className="flex-1 min-w-0">
+                            <span className="font-medium text-[var(--foreground)] truncate block">{item.name}</span>
+                          </div>
+                          <span className={`w-2 h-2 rounded-full flex-shrink-0 ${item.is_veg ? 'bg-green-500' : 'bg-red-500'}`}></span>
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Preview Section - shows when items are selected */}
+              {formMealItems.length > 0 && (
+                <div className="p-3 bg-[var(--surface-secondary)] rounded-xl">
+                  <p className="text-xs text-[var(--text-muted)] mb-2">Preview</p>
+                  <div className="flex items-center gap-3">
+                    {/* Show meal item images or custom image */}
+                    {formImage ? (
+                      <img src={formImage} alt="Preview" className="w-16 h-16 rounded-lg object-cover" />
+                    ) : getSelectedItemImages().length > 0 ? (
+                      <div className="flex -space-x-2">
+                        {getSelectedItemImages().map((img, idx) => (
+                          <img key={idx} src={img} alt="" className="w-12 h-12 rounded-lg object-cover border-2 border-[var(--surface-secondary)]" />
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="w-16 h-16 rounded-lg bg-[var(--border)] flex items-center justify-center">
+                        <svg className="w-6 h-6 text-[var(--text-muted)]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                        </svg>
+                      </div>
+                    )}
+                    <div className="flex-1 min-w-0">
+                      <p className="font-medium text-[var(--foreground)] truncate">
+                        {formName.trim() || generateMealName(getSelectedItems())}
+                      </p>
+                      <p className="text-xs text-[var(--text-muted)]">
+                        {getSelectedItems().map(i => i.name).join(', ')}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Name - Optional */}
+              <div>
+                <label className="block text-sm font-medium text-[var(--foreground)] mb-1">
+                  Name <span className="text-[var(--text-muted)] font-normal">(optional)</span>
+                </label>
+                <input
+                  type="text"
+                  value={formName}
+                  onChange={(e) => setFormName(e.target.value)}
+                  placeholder={formMealItems.length > 0 ? generateMealName(getSelectedItems()) : "Auto-generated from items"}
+                  className="w-full px-3 py-2 text-sm border border-[var(--border)] rounded-lg bg-[var(--surface-secondary)] text-[var(--foreground)]"
+                />
+              </div>
+
+              {/* Description */}
+              <div>
+                <label className="block text-sm font-medium text-[var(--foreground)] mb-1">Description</label>
+                <input
+                  type="text"
+                  value={formDescription}
+                  onChange={(e) => setFormDescription(e.target.value)}
+                  placeholder="Brief description (optional)"
+                  className="w-full px-3 py-2 text-sm border border-[var(--border)] rounded-lg bg-[var(--surface-secondary)] text-[var(--foreground)]"
+                />
+              </div>
+
+              {/* Image URL */}
+              <div>
+                <label className="block text-sm font-medium text-[var(--foreground)] mb-1">
+                  Custom Image <span className="text-[var(--text-muted)] font-normal">(optional - uses item images by default)</span>
+                </label>
+                <input
+                  type="text"
+                  value={formImage}
+                  onChange={(e) => setFormImage(e.target.value)}
+                  placeholder="https://example.com/image.jpg"
+                  className="w-full px-3 py-2 text-sm border border-[var(--border)] rounded-lg bg-[var(--surface-secondary)] text-[var(--foreground)]"
+                />
+              </div>
+
+              {/* Meal Type */}
+              <div>
+                <label className="block text-sm font-medium text-[var(--foreground)] mb-1">Meal Type</label>
+                <div className="flex flex-wrap gap-2">
+                  {(['breakfast', 'lunch', 'dinner', 'any'] as const).map((type) => (
+                    <button
+                      key={type}
+                      type="button"
+                      onClick={() => setFormMealType(type)}
+                      className={`px-3 py-1.5 text-sm rounded-lg capitalize ${
+                        formMealType === type
+                          ? mealTypeColors[type]
+                          : 'bg-[var(--surface-secondary)] text-[var(--foreground)]'
+                      }`}
+                    >
+                      {type === 'any' ? 'Any Time' : type}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+            </div>
+
+            {/* Footer */}
+            <div className="flex gap-3 px-5 py-4 border-t border-[var(--border)]">
+              <button
+                onClick={closeDialog}
+                className="flex-1 px-4 py-2.5 bg-[var(--surface-secondary)] text-[var(--foreground)] rounded-xl hover:bg-[var(--border)]"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleSave}
+                disabled={saving || formMealItems.length === 0}
+                className="flex-1 px-4 py-2.5 bg-[var(--primary)] text-white rounded-xl hover:bg-[var(--primary-dark)] disabled:opacity-50"
+              >
+                {saving ? 'Saving...' : editingMeal ? 'Update' : dateParam ? 'Create & Add' : 'Create'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -446,4 +608,3 @@ export default function MealsPage() {
     </Suspense>
   );
 }
-
