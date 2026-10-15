@@ -301,7 +301,7 @@ export default function Home() {
       <Sidebar />
 
       {/* Main Content */}
-      <div className="flex-1 flex flex-col min-h-screen pb-16 md:pb-0">
+      <div className="flex-1 min-w-0 flex flex-col min-h-screen pb-16 md:pb-0">
         {/* Tomorrow's Meal Preparation Reminders */}
         {tomorrowReminders.length > 0 && (
           <div className="bg-gradient-to-r from-[var(--accent)] to-[var(--accent-dark)] text-white">

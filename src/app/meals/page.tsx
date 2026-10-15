@@ -242,7 +242,7 @@ function MealsPageContent() {
       <Sidebar />
 
       {/* Main Content */}
-      <div className="flex-1 flex flex-col min-h-screen pb-16 md:pb-0">
+      <div className="flex-1 min-w-0 flex flex-col min-h-screen pb-16 md:pb-0">
         {/* Header */}
         <div className="bg-[var(--surface)] border-b border-[var(--border)] px-4 sm:px-6 py-4">
           <div className="flex items-center justify-between">
