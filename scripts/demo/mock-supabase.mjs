@@ -1,7 +1,7 @@
 // Minimal in-memory PostgREST-compatible mock of the Supabase tables this app uses.
 // Lets the UI run with fictional demo data and no Supabase project / credentials.
 //   node scripts/demo/mock-supabase.mjs        (listens on :54321)
-// Then run the app with:
+// Or just run `pnpm demo`, which starts both. Manually:
 //   NEXT_PUBLIC_SUPABASE_URL=http://localhost:54321 NEXT_PUBLIC_SUPABASE_ANON_KEY=demo pnpm dev
 import http from 'node:http'
 import { randomUUID } from 'node:crypto'

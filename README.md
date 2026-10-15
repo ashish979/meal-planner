@@ -56,12 +56,13 @@ Next.js 16 (App Router, Turbopack) · React 19 · TypeScript · Tailwind CSS 4 �
 pnpm install
 ```
 
-**Demo mode (no accounts needed):**
+**Zero-setup demo (no accounts, no env vars):**
 
 ```bash
-node scripts/demo/mock-supabase.mjs &
-NEXT_PUBLIC_SUPABASE_URL=http://localhost:54321 NEXT_PUBLIC_SUPABASE_ANON_KEY=demo pnpm dev
+pnpm demo
 ```
+
+This starts a mock Supabase server with fictional data (`scripts/demo/mock-supabase.mjs`) together with the dev server. Data is in memory and resets on restart.
 
 **With your own Supabase project:** run [`supabase-schema.sql`](supabase-schema.sql) in the SQL editor, copy `.env.example` to `.env.local`, fill in the values, then `pnpm dev`. More in [SUPABASE_SETUP.md](SUPABASE_SETUP.md).
 

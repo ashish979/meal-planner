@@ -14,7 +14,7 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   title: "Meal Planner",
-  description: "Plan weekly meals, schedule them on a calendar, and get prep reminders",
+  description: "Meal Planner: plan weekly meals, dishes and prep reminders",
   icons: {
     icon: "/favicon.svg",
     apple: "/favicon.svg",

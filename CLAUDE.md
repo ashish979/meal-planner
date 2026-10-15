@@ -8,7 +8,7 @@ Meal Planner: Next.js 16 (App Router) + React 19 + TypeScript + Tailwind v4 + Su
 - `pnpm dev` - dev server on :3000 (Turbopack)
 - `pnpm build` / `pnpm start` - production build / serve
 - `pnpm lint` - currently fails with an ESLint flat-config circular-structure error (`eslint.config.mjs` FlatCompat + next config); pre-existing, use `pnpm exec tsc --noEmit` for type checks
-- Demo without Supabase: `node scripts/demo/mock-supabase.mjs` then `NEXT_PUBLIC_SUPABASE_URL=http://localhost:54321 NEXT_PUBLIC_SUPABASE_ANON_KEY=demo pnpm dev`
+- `pnpm demo` - mock Supabase (:54321) + dev server together, no credentials needed
 
 ## Layout
 - `src/app/page.tsx` - calendar (largest file; day/week/month views, drag & drop, picker modal, reminders, auto-suggest)
@@ -31,4 +31,4 @@ Meal Planner: Next.js 16 (App Router) + React 19 + TypeScript + Tailwind v4 + Su
 - `calendar_days.date` is UNIQUE; `calendarService.updateMeal` does select-then-update/insert (not atomic).
 - `ingredients`/`meal_items` arrays on meals are JSON id arrays with no FK integrity: deleting a dish leaves dangling ids.
 - No auth or RLS: anon key has full access.
-- Calendar week table has a `min-w-[120px]` column per day; the content wrapper needs `min-w-0` or the page overflows horizontally.
+- At 1440px the week table still scrolls horizontally inside its card (7 columns + sidebar); the page itself no longer overflows. The table has a `min-w-[120px]` column per day; the content wrapper needs `min-w-0` or the page overflows horizontally.
